@@ -179,6 +179,28 @@ async function regenerateSchedule(project) {
   }
 }
 
+/**
+ * When an existing project's frequency/capture-days/anchor date changes,
+ * removes not-yet-captured planned entries that the OLD pattern implied
+ * but the NEW one no longer does — so switching e.g. weekly (Mon, Thu)
+ * down to just Mon doesn't leave the old Thursdays sitting around to
+ * eventually show up as "Missing". Already-captured entries are never
+ * touched, and dates that were never part of the old auto-generated
+ * pattern (added by hand) are left alone either way.
+ */
+async function pruneStaleSchedule(oldProject, newProject) {
+  const horizon = addMonthsKeepDay(todayStr(), SCHEDULE_HORIZON_MONTHS);
+  const oldWanted = new Set(generatePlannedDates(oldProject, horizon));
+  const newWanted = new Set(generatePlannedDates(newProject, horizon));
+  const fresh = await Store.getData();
+  const stale = fresh.schedule.filter(
+    (e) => e.projectId === newProject.id && !e.capturedDate && oldWanted.has(e.plannedDate) && !newWanted.has(e.plannedDate)
+  );
+  for (const e of stale) {
+    await Store.deleteScheduleEntry(e.id);
+  }
+}
+
 /* ================= toast + modal ================= */
 
 function showToast(message, isError = false) {
@@ -554,6 +576,7 @@ async function handleGlobalClick(e) {
   }
 
   if (action === "undo-capture") {
+    if (!confirm("Clear this capture? Whoever logged it will lose credit for it.")) return;
     try {
       await Store.updateScheduleEntry(el.dataset.id, { capturedDate: null });
       await refreshDataOnly();
@@ -1212,6 +1235,7 @@ function openProjectModal(project) {
       if (isEdit) {
         await Store.updateProject(project.id, fields);
         full = { ...project, ...fields };
+        await pruneStaleSchedule(project, full);
       } else {
         full = await Store.addProject(fields);
       }
