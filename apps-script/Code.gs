@@ -29,7 +29,7 @@ const SHEETS = {
 };
 
 const HEADERS = {
-  Projects: ["id", "name", "active", "defaultAssigneeId", "frequency", "anchorDate", "createdDate"],
+  Projects: ["id", "name", "active", "defaultAssigneeId", "frequency", "anchorDate", "createdDate", "captureDays"],
   People: ["id", "name", "email", "active"],
   Schedule: ["id", "projectId", "personId", "plannedDate", "capturedDate", "notes"],
 };

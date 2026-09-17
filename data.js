@@ -98,15 +98,69 @@ function summarize(entries) {
   };
 }
 
+/* ---------- capture-day-of-week helpers (0 = Mon … 6 = Sun) ---------- */
+
+const WEEKDAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+function mondayOfWeek(dateStr) {
+  const d = parseDateStr(dateStr);
+  const offset = (d.getDay() + 6) % 7; // JS getDay(): 0=Sun..6=Sat -> 0=Mon..6=Sun
+  d.setDate(d.getDate() - offset);
+  return toDateStr(d);
+}
+
+/** captureDays is stored as a comma-separated string, e.g. "0,3" for Mon+Thu. */
+function parseCaptureDays(captureDays) {
+  if (!captureDays) return [];
+  return String(captureDays)
+    .split(",")
+    .map((s) => parseInt(s, 10))
+    .filter((n) => Number.isInteger(n) && n >= 0 && n <= 6);
+}
+
+function captureDaysLabel(captureDays) {
+  const days = parseCaptureDays(captureDays);
+  if (!days.length) return "";
+  return days
+    .slice()
+    .sort((a, b) => a - b)
+    .map((i) => WEEKDAY_NAMES[i])
+    .join(", ");
+}
+
 /* ---------- recurring schedule generation ---------- */
 
 /**
  * Generates planned-capture dates for a project from its anchor
  * date through `throughDate` (inclusive), based on its frequency.
  * "manual" projects generate nothing — dates are added by hand.
+ *
+ * For weekly/biweekly projects with specific capture days chosen
+ * (project.captureDays, e.g. "0,3" for Mon+Thu), every one of those
+ * weekdays is generated each cycle. Without captureDays set (older
+ * projects, or monthly/manual), it falls back to stepping from the
+ * single anchor date, same as before.
  */
 function generatePlannedDates(project, throughDate) {
   if (!project.anchorDate || project.frequency === "manual") return [];
+
+  const captureDays = parseCaptureDays(project.captureDays);
+  if (captureDays.length && (project.frequency === "weekly" || project.frequency === "biweekly")) {
+    const stepDays = project.frequency === "weekly" ? 7 : 14;
+    const dates = [];
+    let weekStart = mondayOfWeek(project.anchorDate);
+    let guard = 0;
+    while (weekStart <= throughDate && guard < 500) {
+      for (const dow of captureDays) {
+        const d = addDays(weekStart, dow);
+        if (d >= project.anchorDate && d <= throughDate) dates.push(d);
+      }
+      weekStart = addDays(weekStart, stepDays);
+      guard++;
+    }
+    return dates.sort();
+  }
+
   const dates = [];
   let d = project.anchorDate;
   let guard = 0;

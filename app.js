@@ -88,17 +88,27 @@ function saveUnlockedProjects() {
  * wherever someone checks in a capture — they confirm who they are
  * from this list rather than typing a name.
  */
+/**
+ * <option> list of active people, each labeled with their track
+ * record (on-time rate + capture count) so whoever is picking a
+ * name can see that person's frequency and punctuality right there.
+ */
+function personStatsOptionsHtml(selectedId) {
+  return STATE.data.people
+    .filter((p) => p.active !== false)
+    .map((p) => {
+      const s = summarize(STATE.data.schedule.filter((e) => e.personId === p.id));
+      const stats = s.due ? ` — ${formatPercent(s.onTimeRate)} on-time (${s.due} captures)` : " — no captures yet";
+      return `<option value="${p.id}" ${p.id === selectedId ? "selected" : ""}>${escapeHtml(p.name + stats)}</option>`;
+    })
+    .join("");
+}
+
 function picSelectHtml(entryId, selectedId) {
-  const people = STATE.data.people.filter((p) => p.active !== false);
   return `
-    <select data-pic-for="${entryId}" style="border:1px solid var(--border); border-radius:8px; padding:6px;">
+    <select data-pic-for="${entryId}" style="min-width:220px; border:1px solid var(--border); border-radius:8px; padding:6px;">
       <option value="">Who captured this?</option>
-      ${people
-        .map(
-          (p) =>
-            `<option value="${p.id}" ${p.id === selectedId ? "selected" : ""}>${escapeHtml(p.name)}</option>`
-        )
-        .join("")}
+      ${personStatsOptionsHtml(selectedId)}
     </select>`;
 }
 
@@ -126,6 +136,11 @@ function formatPercent(x) {
 
 function frequencyLabel(f) {
   return { weekly: "Weekly", biweekly: "Every 2 weeks", monthly: "Monthly", manual: "Manual" }[f] || f;
+}
+
+function frequencyDetailLabel(project) {
+  const days = captureDaysLabel(project.captureDays);
+  return days ? `${frequencyLabel(project.frequency)} (${days})` : frequencyLabel(project.frequency);
 }
 
 function entriesInMonth(entries, year, month) {
@@ -617,7 +632,7 @@ function renderPicker() {
       return `
         <button type="button" class="project-card" data-action="select-project" data-id="${p.id}">
           <div class="project-card-name">${escapeHtml(p.name)}${locked ? ` <span class="lock-badge">Passcode required</span>` : ""}</div>
-          <div class="project-card-meta">${frequencyLabel(p.frequency)} · ${escapeHtml(personName(p.defaultAssigneeId))}</div>
+          <div class="project-card-meta">${frequencyDetailLabel(p)} · ${escapeHtml(personName(p.defaultAssigneeId))}</div>
           <div class="project-card-stats">
             <span class="chip chip-${s.missing > 0 ? "missing" : "on-time"}">${s.missing > 0 ? s.missing + " missing" : "up to date"}</span>
             <span class="project-card-rate">${formatPercent(s.onTimeRate)} on-time</span>
@@ -700,7 +715,7 @@ function renderProjectView() {
     <div class="view-header">
       <div>
         <h1>${isAll ? "All projects" : escapeHtml(project.name)}</h1>
-        <p>${isAll ? "Combined view across every active project" : `${frequencyLabel(project.frequency)} · ${escapeHtml(personName(project.defaultAssigneeId))}`}</p>
+        <p>${isAll ? "Combined view across every active project" : `${frequencyDetailLabel(project)} · ${escapeHtml(personName(project.defaultAssigneeId))}`}</p>
       </div>
       ${scopeToggle}
     </div>
@@ -918,9 +933,9 @@ function openDayModal(dateStr) {
               </select>`
             : `<input type="hidden" id="add-entry-project" value="${STATE.selectedProjectId}">`
         }
-        <select id="add-entry-person" style="flex:1; min-width:140px; border:1px solid var(--border); border-radius:8px; padding:8px;">
+        <select id="add-entry-person" style="flex:1; min-width:220px; border:1px solid var(--border); border-radius:8px; padding:8px;">
           <option value="">Unassigned</option>
-          ${STATE.data.people.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("")}
+          ${personStatsOptionsHtml(null)}
         </select>
         <button class="btn btn-primary" data-action="add-entry-for-day" data-date="${dateStr}">Add</button>
       </div>
@@ -951,7 +966,7 @@ function projectsTableRows() {
         <tr>
           <td>
             <div style="font-weight:600;">${escapeHtml(p.name)}</div>
-            <div class="list-row-sub">${frequencyLabel(p.frequency)}${p.frequency !== "manual" ? " · anchor " + formatDateHuman(p.anchorDate) : ""}</div>
+            <div class="list-row-sub">${frequencyDetailLabel(p)}${p.frequency !== "manual" ? " · anchor " + formatDateHuman(p.anchorDate) : ""}</div>
           </td>
           <td>${escapeHtml(personName(p.defaultAssigneeId))}</td>
           <td>
@@ -1067,6 +1082,7 @@ function renderManage() {
 function openProjectModal(project) {
   const isEdit = !!project;
   const people = STATE.data.people;
+  const selectedDays = new Set(parseCaptureDays(project?.captureDays));
   const html = `
     <div class="modal-title">${isEdit ? "Edit project" : "Add project"}</div>
     <div class="modal-sub">Set up who owns capture for this project and how often it's expected.</div>
@@ -1092,6 +1108,19 @@ function openProjectModal(project) {
         </select>
         <span class="hint">Weekly/biweekly/monthly auto-generates the next ${SCHEDULE_HORIZON_MONTHS} months of planned dates.</span>
       </div>
+      <div class="form-row" id="pf-days-row">
+        <label>Which day(s) of the week</label>
+        <div class="weekday-block">
+          ${WEEKDAY_NAMES.map(
+            (name, i) => `
+            <label class="weekday-box">
+              <input type="checkbox" value="${i}" ${selectedDays.has(i) ? "checked" : ""}>
+              <span>${name}</span>
+            </label>`
+          ).join("")}
+        </div>
+        <span class="hint">Pick any combination — capture will be planned on each of these days, at the frequency above.</span>
+      </div>
       <div class="form-row">
         <label for="pf-anchor">First planned capture date</label>
         <input type="date" id="pf-anchor" value="${project?.anchorDate || todayStr()}">
@@ -1107,12 +1136,24 @@ function openProjectModal(project) {
     </form>
   `;
   openModal(html);
+
+  const freqSelect = document.getElementById("pf-frequency");
+  const daysRow = document.getElementById("pf-days-row");
+  const syncDaysVisibility = () => {
+    daysRow.hidden = !(freqSelect.value === "weekly" || freqSelect.value === "biweekly");
+  };
+  syncDaysVisibility();
+  freqSelect.addEventListener("change", syncDaysVisibility);
+
   document.getElementById("project-form").addEventListener("submit", async (e) => {
     e.preventDefault();
+    const frequency = freqSelect.value;
+    const chosenDays = Array.from(daysRow.querySelectorAll("input[type=checkbox]:checked")).map((cb) => cb.value);
     const fields = {
       name: document.getElementById("pf-name").value.trim(),
       defaultAssigneeId: document.getElementById("pf-assignee").value || null,
-      frequency: document.getElementById("pf-frequency").value,
+      frequency,
+      captureDays: frequency === "weekly" || frequency === "biweekly" ? chosenDays.join(",") : "",
       anchorDate: document.getElementById("pf-anchor").value,
       active: document.getElementById("pf-active").checked,
     };

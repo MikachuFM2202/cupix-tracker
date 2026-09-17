@@ -671,6 +671,10 @@ tbody tr:hover {
   gap: 6px;
 }
 
+.form-row[hidden] {
+  display: none;
+}
+
 .form-row label {
   font-size: 13px;
   font-weight: 600;
@@ -705,6 +709,32 @@ tbody tr:hover {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 18px;
+}
+
+.weekday-block {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+}
+
+.weekday-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.weekday-box:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .checkbox-row {
