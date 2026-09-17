@@ -863,8 +863,17 @@ function renderCalendarSection(scopedEntries, year, month, isAll) {
                 const dayEntries = scopedEntries.filter((e) => e.plannedDate === day.dateStr);
                 const shown = dayEntries.slice(0, 3);
                 const extra = dayEntries.length - shown.length;
+                // Shade the whole day cell only once a capture is actually
+                // logged for it — missing/upcoming days stay unshaded and
+                // just show their chip(s), same as before.
+                const capturedEntries = dayEntries.filter((e) => e.capturedDate);
+                const dayShadeClass = capturedEntries.length
+                  ? capturedEntries.some((e) => captureStatus(e) === "late")
+                    ? "day-captured-late"
+                    : "day-captured-on-time"
+                  : "";
                 return `
-              <button type="button" class="calendar-day ${day.inMonth ? "" : "outside"} ${day.dateStr === today ? "today" : ""}" data-action="open-day" data-date="${day.dateStr}">
+              <button type="button" class="calendar-day ${day.inMonth ? "" : "outside"} ${day.dateStr === today ? "today" : ""} ${dayShadeClass}" data-action="open-day" data-date="${day.dateStr}">
                 <div class="calendar-day-num">${day.dayNum}</div>
                 <div style="display:flex; flex-direction:column; gap:3px;">
                   ${shown
