@@ -23,6 +23,10 @@
   --red-text: #b3261e;
   --gray-bg: #edeff5;
   --gray-text: #5b6270;
+  --blue-bg: #eaf1fd;
+  --blue-text: #2b5fa8;
+  --purple-bg: #f1ecfb;
+  --purple-text: #6b3fa0;
 
   --radius: 12px;
   --radius-sm: 8px;
@@ -481,6 +485,8 @@ a {
 .legend-late { background: var(--amber-text); }
 .legend-missing { background: var(--red-text); }
 .legend-upcoming { background: var(--gray-text); }
+.legend-planned { background: var(--blue-text); }
+.legend-holiday { background: var(--purple-text); }
 
 .calendar-grid {
   display: grid;
@@ -534,9 +540,31 @@ a {
   background: var(--amber-bg);
 }
 
+/* An upcoming (not yet due) day that's part of the project's capture
+   pattern — shows the expected rhythm at a glance, distinct from the
+   outcome colors above. */
+.calendar-day.day-planned {
+  background: var(--blue-bg);
+}
+
+/* A Singapore public holiday (toggle-able) — takes priority over the
+   "planned" shade but never over a real logged outcome. */
+.calendar-day.day-holiday {
+  background: var(--purple-bg);
+}
+
 .calendar-day-num {
   font-size: 12.5px;
   font-weight: 600;
+}
+
+.calendar-day-holiday-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--purple-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .calendar-dot-row {

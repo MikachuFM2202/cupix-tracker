@@ -32,3 +32,30 @@ const SCHEDULE_HORIZON_MONTHS = 3;
  * secret: anyone who reads this file (or the page source) can see it.
  */
 const ADMIN_PASSCODE = "dge2026";
+
+/**
+ * Singapore public holidays, used only to shade them on the calendar
+ * so you can see at a glance which planned capture days fall on an
+ * off day. The fixed-date ones (New Year, Labour Day, National Day,
+ * Christmas) are certain; the lunar/Islamic-calendar ones (Chinese
+ * New Year, Hari Raya Puasa/Haji, Vesak, Deepavali) are best-effort
+ * and worth checking against the current official MOM gazette before
+ * relying on them for real scheduling decisions — those move every
+ * year and this list isn't fetched live. When a holiday falls on a
+ * Sunday, the Monday after is added too, per Singapore's usual "day
+ * in lieu" convention. Add more years here as they're confirmed.
+ */
+const SG_PUBLIC_HOLIDAYS = [
+  { date: "2026-01-01", name: "New Year's Day" },
+  { date: "2026-02-17", name: "Chinese New Year" },
+  { date: "2026-02-18", name: "Chinese New Year" },
+  { date: "2026-03-20", name: "Hari Raya Puasa" },
+  { date: "2026-04-03", name: "Good Friday" },
+  { date: "2026-05-01", name: "Labour Day" },
+  { date: "2026-05-27", name: "Hari Raya Haji" },
+  { date: "2026-05-31", name: "Vesak Day" },
+  { date: "2026-08-09", name: "National Day" },
+  { date: "2026-08-10", name: "National Day (in lieu)" },
+  { date: "2026-11-08", name: "Deepavali" },
+  { date: "2026-12-25", name: "Christmas Day" },
+];

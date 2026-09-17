@@ -17,6 +17,7 @@ const STATE = {
   lastSingleProjectId: null, // remembered so the "This project" toggle has somewhere to go back to
   admin: false,
   unlockedProjects: new Set(), // project ids this browser has already entered the passcode for
+  showHolidays: true, // whether the calendar shades Singapore public holidays
   data: { projects: [], people: [], schedule: [] },
   calendar: (() => {
     const t = new Date();
@@ -78,6 +79,24 @@ function loadUnlockedProjects() {
 function saveUnlockedProjects() {
   try {
     localStorage.setItem("cupix_unlocked_projects", JSON.stringify([...STATE.unlockedProjects]));
+  } catch (err) {
+    /* ignore */
+  }
+}
+
+function loadShowHolidays() {
+  try {
+    const raw = localStorage.getItem("cupix_show_holidays");
+    if (raw !== null) return raw === "1";
+  } catch (err) {
+    /* ignore */
+  }
+  return true; // on by default — that's the point of the toggle
+}
+
+function saveShowHolidays() {
+  try {
+    localStorage.setItem("cupix_show_holidays", STATE.showHolidays ? "1" : "0");
   } catch (err) {
     /* ignore */
   }
@@ -344,6 +363,7 @@ function init() {
     /* ignore */
   }
   STATE.unlockedProjects = loadUnlockedProjects();
+  STATE.showHolidays = loadShowHolidays();
 
   const banner = document.getElementById("mode-banner");
   banner.hidden = false;
@@ -443,6 +463,13 @@ async function handleGlobalClick(e) {
 
   if (action === "open-day") {
     openDayModal(el.dataset.date);
+    return;
+  }
+
+  if (action === "toggle-holidays") {
+    STATE.showHolidays = !STATE.showHolidays;
+    saveShowHolidays();
+    render();
     return;
   }
 
@@ -895,7 +922,13 @@ function renderCalendarSection(scopedEntries, year, month, isAll) {
           <div class="calendar-month-label">${monthLabel(year, month)}</div>
           <button class="btn btn-small" data-action="cal-next">&rarr;</button>
         </div>
-        <button class="btn btn-small" data-action="cal-today">Today</button>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <label class="checkbox-row" style="font-size:13px;">
+            <input type="checkbox" data-action="toggle-holidays" ${STATE.showHolidays ? "checked" : ""}>
+            <span>Show SG public holidays</span>
+          </label>
+          <button class="btn btn-small" data-action="cal-today">Today</button>
+        </div>
       </div>
 
       <div class="calendar-legend">
@@ -903,6 +936,8 @@ function renderCalendarSection(scopedEntries, year, month, isAll) {
         <span><i class="legend-late"></i>Late</span>
         <span><i class="legend-missing"></i>Missing</span>
         <span><i class="legend-upcoming"></i>Upcoming</span>
+        <span><i class="legend-planned"></i>Capture day</span>
+        ${STATE.showHolidays ? `<span><i class="legend-holiday"></i>Public holiday</span>` : ""}
       </div>
 
       <div class="calendar-grid">
@@ -914,18 +949,31 @@ function renderCalendarSection(scopedEntries, year, month, isAll) {
                 const dayEntries = scopedEntries.filter((e) => e.plannedDate === day.dateStr);
                 const shown = dayEntries.slice(0, 3);
                 const extra = dayEntries.length - shown.length;
-                // Shade the whole day cell only once a capture is actually
-                // logged for it — missing/upcoming days stay unshaded and
-                // just show their chip(s), same as before.
                 const capturedEntries = dayEntries.filter((e) => e.capturedDate);
-                const dayShadeClass = capturedEntries.length
-                  ? capturedEntries.some((e) => captureStatus(e) === "late")
+                const upcomingEntries = dayEntries.filter((e) => captureStatus(e) === "upcoming");
+                const holiday = STATE.showHolidays ? publicHoliday(day.dateStr) : null;
+
+                // Priority: an actual logged outcome (on-time/late) always
+                // wins — it's history, never hidden. Otherwise a public
+                // holiday is called out. Otherwise, an upcoming (not yet
+                // due) capture day gets a light "this is expected" shade.
+                // Missing/overdue days keep just their small red chip, no
+                // whole-day shade — that's their outcome color already.
+                let dayShadeClass = "";
+                if (capturedEntries.length) {
+                  dayShadeClass = capturedEntries.some((e) => captureStatus(e) === "late")
                     ? "day-captured-late"
-                    : "day-captured-on-time"
-                  : "";
+                    : "day-captured-on-time";
+                } else if (holiday) {
+                  dayShadeClass = "day-holiday";
+                } else if (upcomingEntries.length) {
+                  dayShadeClass = "day-planned";
+                }
+
                 return `
               <button type="button" class="calendar-day ${day.inMonth ? "" : "outside"} ${day.dateStr === today ? "today" : ""} ${dayShadeClass}" data-action="open-day" data-date="${day.dateStr}">
                 <div class="calendar-day-num">${day.dayNum}</div>
+                ${holiday ? `<div class="calendar-day-holiday-label">${escapeHtml(holiday.name)}</div>` : ""}
                 <div style="display:flex; flex-direction:column; gap:3px;">
                   ${shown
                     .map((e) => {

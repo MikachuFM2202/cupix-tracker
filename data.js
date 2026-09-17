@@ -128,6 +128,12 @@ function captureDaysLabel(captureDays) {
     .join(", ");
 }
 
+/** Returns { date, name } if dateStr is a configured SG public holiday, else null. */
+function publicHoliday(dateStr) {
+  const list = typeof SG_PUBLIC_HOLIDAYS !== "undefined" ? SG_PUBLIC_HOLIDAYS : [];
+  return list.find((h) => h.date === dateStr) || null;
+}
+
 /* ---------- recurring schedule generation ---------- */
 
 /**
