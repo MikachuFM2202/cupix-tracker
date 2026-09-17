@@ -31,4 +31,4 @@ const SCHEDULE_HORIZON_MONTHS = 3;
  * to something your team wouldn't guess, but don't treat it as a
  * secret: anyone who reads this file (or the page source) can see it.
  */
-const ADMIN_PASSCODE = "cupix-admin";
+const ADMIN_PASSCODE = "dge2026";

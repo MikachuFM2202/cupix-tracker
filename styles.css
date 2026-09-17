@@ -356,6 +356,18 @@ a {
   font-weight: 700;
 }
 
+.lock-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--amber-text);
+  background: var(--amber-bg);
+  padding: 2px 8px;
+  border-radius: 999px;
+  vertical-align: middle;
+  margin-left: 4px;
+}
+
 .project-card-meta {
   font-size: 13px;
   color: var(--text-muted);

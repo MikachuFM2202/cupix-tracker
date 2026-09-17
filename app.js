@@ -16,6 +16,7 @@ const STATE = {
   selectedProjectId: null, // a real project id, or "all" (admin combined view)
   lastSingleProjectId: null, // remembered so the "This project" toggle has somewhere to go back to
   admin: false,
+  unlockedProjects: new Set(), // project ids this browser has already entered the passcode for
   data: { projects: [], people: [], schedule: [] },
   calendar: (() => {
     const t = new Date();
@@ -48,6 +49,38 @@ function personName(id) {
 
 function activeProjects() {
   return STATE.data.projects.filter((p) => p.active !== false);
+}
+
+/**
+ * Each project's entry passcode is its name plus "2026" (e.g. the
+ * project "CR211" is entered with "CR2112026") — a light UX gate,
+ * not real security, same spirit as ADMIN_PASSCODE. Admins skip it
+ * entirely since Admin mode already implies full access.
+ */
+function projectPasscode(project) {
+  return `${project.name}2026`;
+}
+
+function isProjectUnlocked(id) {
+  return STATE.admin || STATE.unlockedProjects.has(id);
+}
+
+function loadUnlockedProjects() {
+  try {
+    const raw = localStorage.getItem("cupix_unlocked_projects");
+    if (raw) return new Set(JSON.parse(raw));
+  } catch (err) {
+    /* ignore */
+  }
+  return new Set();
+}
+
+function saveUnlockedProjects() {
+  try {
+    localStorage.setItem("cupix_unlocked_projects", JSON.stringify([...STATE.unlockedProjects]));
+  } catch (err) {
+    /* ignore */
+  }
 }
 
 /**
@@ -207,6 +240,49 @@ function openAdminLoginModal() {
   });
 }
 
+function enterProject(id) {
+  STATE.selectedProjectId = id;
+  STATE.lastSingleProjectId = id;
+  STATE.view = "project";
+  const t = new Date();
+  STATE.calendar.year = t.getFullYear();
+  STATE.calendar.month = t.getMonth();
+  render();
+}
+
+function openProjectPasscodeModal(projectId) {
+  const project = byId(STATE.data.projects, projectId);
+  if (!project) return;
+  const html = `
+    <div class="modal-title">${escapeHtml(project.name)}</div>
+    <div class="modal-sub">Enter this project's passcode to continue.</div>
+    <form id="project-passcode-form">
+      <div class="form-row">
+        <label for="project-passcode">Passcode</label>
+        <input type="password" id="project-passcode" autocomplete="off">
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn" data-action="close-modal">Cancel</button>
+        <button type="submit" class="btn btn-primary">Enter</button>
+      </div>
+    </form>
+  `;
+  openModal(html);
+  const input = document.getElementById("project-passcode");
+  input.focus();
+  document.getElementById("project-passcode-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (input.value === projectPasscode(project)) {
+      STATE.unlockedProjects.add(project.id);
+      saveUnlockedProjects();
+      closeModal();
+      enterProject(project.id);
+    } else {
+      showToast("Wrong passcode", true);
+    }
+  });
+}
+
 function exitAdmin() {
   STATE.admin = false;
   try {
@@ -230,6 +306,7 @@ function init() {
   } catch (err) {
     /* ignore */
   }
+  STATE.unlockedProjects = loadUnlockedProjects();
 
   const banner = document.getElementById("mode-banner");
   banner.hidden = false;
@@ -279,13 +356,9 @@ async function handleGlobalClick(e) {
     return;
   }
   if (action === "select-project") {
-    STATE.selectedProjectId = el.dataset.id;
-    STATE.lastSingleProjectId = el.dataset.id;
-    STATE.view = "project";
-    const t = new Date();
-    STATE.calendar.year = t.getFullYear();
-    STATE.calendar.month = t.getMonth();
-    render();
+    const id = el.dataset.id;
+    if (isProjectUnlocked(id)) enterProject(id);
+    else openProjectPasscodeModal(id);
     return;
   }
   if (action === "select-all-projects" || action === "scope-all") {
@@ -540,9 +613,10 @@ function renderPicker() {
   const cards = activeProjects()
     .map((p) => {
       const s = summarize(filterByProject(STATE.data.schedule, p.id));
+      const locked = !isProjectUnlocked(p.id);
       return `
         <button type="button" class="project-card" data-action="select-project" data-id="${p.id}">
-          <div class="project-card-name">${escapeHtml(p.name)}</div>
+          <div class="project-card-name">${escapeHtml(p.name)}${locked ? ` <span class="lock-badge">Passcode required</span>` : ""}</div>
           <div class="project-card-meta">${frequencyLabel(p.frequency)} · ${escapeHtml(personName(p.defaultAssigneeId))}</div>
           <div class="project-card-stats">
             <span class="chip chip-${s.missing > 0 ? "missing" : "on-time"}">${s.missing > 0 ? s.missing + " missing" : "up to date"}</span>
