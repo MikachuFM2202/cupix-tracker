@@ -525,6 +525,34 @@ async function handleGlobalClick(e) {
     return;
   }
 
+  if (action === "save-capture-edit") {
+    if (!STATE.admin) return;
+    const row = el.closest("[data-entry-row]");
+    const dateInput = row.querySelector(`[data-captured-date-for="${el.dataset.id}"]`);
+    const picSelect = row.querySelector(`[data-pic-for="${el.dataset.id}"]`);
+    if (!picSelect.value) {
+      showToast("Choose who captured this first", true);
+      return;
+    }
+    if (!dateInput.value) {
+      showToast("Choose a capture date", true);
+      return;
+    }
+    try {
+      await Store.updateScheduleEntry(el.dataset.id, {
+        capturedDate: dateInput.value,
+        personId: picSelect.value,
+      });
+      await refreshDataOnly();
+      render();
+      openDayModal(el.dataset.reopenDate);
+      showToast("Capture updated");
+    } catch (err) {
+      showToast(err.message || "Could not update", true);
+    }
+    return;
+  }
+
   if (action === "undo-capture") {
     try {
       await Store.updateScheduleEntry(el.dataset.id, { capturedDate: null });
@@ -906,9 +934,21 @@ function openDayModal(dateStr) {
       const statusChip = `<span class="chip chip-${status}">${STATUS_LABEL[status]}</span>`;
       let actionHtml = "";
       if (e.capturedDate) {
-        actionHtml = `
-          <span class="list-row-sub">Captured ${formatDateHuman(e.capturedDate)}</span>
-          <button class="btn btn-small" data-action="undo-capture" data-id="${e.id}" data-reopen-date="${dateStr}">Undo</button>`;
+        if (STATE.admin) {
+          // Admins can correct a logged capture directly — backdate it,
+          // or hand credit to the right person — rather than having to
+          // undo and re-enter it. This edits the same schedule entry,
+          // so it immediately affects that person's on-time stats.
+          actionHtml = `
+            ${picSelectHtml(e.id, e.personId)}
+            <input type="date" data-captured-date-for="${e.id}" value="${e.capturedDate}" style="border:1px solid var(--border); border-radius:8px; padding:6px;">
+            <button class="btn btn-small btn-primary" data-action="save-capture-edit" data-id="${e.id}" data-reopen-date="${dateStr}">Save</button>
+            <button class="btn btn-small" data-action="undo-capture" data-id="${e.id}" data-reopen-date="${dateStr}">Undo</button>`;
+        } else {
+          actionHtml = `
+            <span class="list-row-sub">Captured ${formatDateHuman(e.capturedDate)}</span>
+            <button class="btn btn-small" data-action="undo-capture" data-id="${e.id}" data-reopen-date="${dateStr}">Undo</button>`;
+        }
       } else {
         actionHtml = `
           ${picSelectHtml(e.id, e.personId)}
