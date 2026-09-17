@@ -44,6 +44,25 @@ function personName(id) {
   return p ? p.name : "(removed)";
 }
 
+/**
+ * A <select> of active people (the admin-managed PIC list), used
+ * wherever someone checks in a capture — they confirm who they are
+ * from this list rather than typing a name.
+ */
+function picSelectHtml(entryId, selectedId) {
+  const people = STATE.data.people.filter((p) => p.active !== false);
+  return `
+    <select data-pic-for="${entryId}" style="border:1px solid var(--border); border-radius:8px; padding:6px;">
+      <option value="">Who captured this?</option>
+      ${people
+        .map(
+          (p) =>
+            `<option value="${p.id}" ${p.id === selectedId ? "selected" : ""}>${escapeHtml(p.name)}</option>`
+        )
+        .join("")}
+    </select>`;
+}
+
 function initials(name) {
   return (name || "?")
     .split(/\s+/)
@@ -277,8 +296,17 @@ async function handleGlobalClick(e) {
   }
 
   if (action === "mark-captured-today") {
+    const row = el.closest("[data-entry-row]");
+    const picSelect = row.querySelector(`[data-pic-for="${el.dataset.id}"]`);
+    if (!picSelect.value) {
+      showToast("Choose who captured this first", true);
+      return;
+    }
     try {
-      await Store.updateScheduleEntry(el.dataset.id, { capturedDate: todayStr() });
+      await Store.updateScheduleEntry(el.dataset.id, {
+        capturedDate: todayStr(),
+        personId: picSelect.value,
+      });
       await afterMutate();
       showToast("Marked as captured");
     } catch (err) {
@@ -290,8 +318,16 @@ async function handleGlobalClick(e) {
   if (action === "mark-captured-on") {
     const row = el.closest("[data-entry-row]");
     const dateInput = row.querySelector("input[type=date]");
+    const picSelect = row.querySelector(`[data-pic-for="${el.dataset.id}"]`);
+    if (!picSelect.value) {
+      showToast("Choose who captured this first", true);
+      return;
+    }
     try {
-      await Store.updateScheduleEntry(el.dataset.id, { capturedDate: dateInput.value || todayStr() });
+      await Store.updateScheduleEntry(el.dataset.id, {
+        capturedDate: dateInput.value || todayStr(),
+        personId: picSelect.value,
+      });
       await refreshDataOnly();
       render();
       openDayModal(el.dataset.reopenDate);
@@ -461,12 +497,15 @@ function renderDashboard() {
             ? missing
                 .map(
                   (e) => `
-              <div class="list-row">
+              <div class="list-row" data-entry-row>
                 <div class="list-row-main">
                   <div class="list-row-title">${escapeHtml(projectName(e.projectId))}</div>
-                  <div class="list-row-sub">Planned ${formatDateHuman(e.plannedDate)} · ${daysOverdue(e.plannedDate)}d overdue · ${escapeHtml(personName(e.personId))}</div>
+                  <div class="list-row-sub">Planned ${formatDateHuman(e.plannedDate)} · ${daysOverdue(e.plannedDate)}d overdue</div>
                 </div>
-                <button class="btn btn-small btn-primary" data-action="mark-captured-today" data-id="${e.id}">Mark captured</button>
+                <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                  ${picSelectHtml(e.id, e.personId)}
+                  <button class="btn btn-small btn-primary" data-action="mark-captured-today" data-id="${e.id}">Mark captured</button>
+                </div>
               </div>`
                 )
                 .join("")
@@ -633,6 +672,7 @@ function openDayModal(dateStr) {
           <button class="btn btn-small" data-action="undo-capture" data-id="${e.id}" data-reopen-date="${dateStr}">Undo</button>`;
       } else {
         actionHtml = `
+          ${picSelectHtml(e.id, e.personId)}
           <input type="date" value="${dateStr}" style="border:1px solid var(--border); border-radius:8px; padding:6px;">
           <button class="btn btn-small btn-primary" data-action="mark-captured-on" data-id="${e.id}" data-reopen-date="${dateStr}">Mark captured</button>`;
       }
@@ -640,7 +680,7 @@ function openDayModal(dateStr) {
         <div class="day-detail-item" data-entry-row>
           <div class="list-row-main">
             <div class="list-row-title">${escapeHtml(projectName(e.projectId))}</div>
-            <div class="list-row-sub">${escapeHtml(personName(e.personId))} · ${statusChip}</div>
+            <div class="list-row-sub">${e.capturedDate ? escapeHtml(personName(e.personId)) + " · " : ""}${statusChip}</div>
           </div>
           <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
             ${actionHtml}

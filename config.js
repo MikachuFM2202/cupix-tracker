@@ -16,7 +16,7 @@
  * Example:
  *   const API_URL = "https://script.google.com/macros/s/AKfycb.../exec";
  */
-const API_URL = "";
+const API_URL = "https://script.google.com/macros/s/AKfycbxfumqI9geJCH1RCdfeG-TId6gMGHl3JxmbfjmzcOv77c7tjx4X62ikPy-UevnaVjni/exec";
 
 // How many months of future planned-capture dates to auto-generate
 // when a project's capture schedule is set to "recurring". You can
