@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cupix Capture Tracker</title>
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">◎</span>
+        <div>
+          <div class="brand-title">Cupix Capture Tracker</div>
+          <div class="brand-subtitle">Model capture scheduling &amp; integrity</div>
+        </div>
+      </div>
+      <nav class="tabs" aria-label="Main navigation">
+        <button class="tab" data-view="dashboard">Dashboard</button>
+        <button class="tab" data-view="calendar">Calendar</button>
+        <button class="tab" data-view="projects">Projects</button>
+        <button class="tab" data-view="people">People</button>
+        <button class="tab" data-view="reports">Reports</button>
+      </nav>
+    </header>
+
+    <div id="mode-banner" class="mode-banner" hidden></div>
+
+    <main id="view-root" class="view-root" aria-live="polite"></main>
+  </div>
+
+  <div id="modal-root"></div>
+  <div id="toast-root" class="toast-root" aria-live="assertive"></div>
+
+  <script src="config.js"></script>
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
