@@ -18,6 +18,7 @@ const STATE = {
   admin: false,
   unlockedProjects: new Set(), // project ids this browser has already entered the passcode for
   showHolidays: true, // whether the calendar shades Singapore public holidays
+  busy: false, // true while a data-action click's Store request is in flight — blocks re-entrant clicks
   data: { projects: [], people: [], schedule: [] },
   calendar: (() => {
     const t = new Date();
@@ -382,11 +383,31 @@ function init() {
 
 /* ================= global click delegation ================= */
 
+/**
+ * Every data-action click funnels through here first. Most actions
+ * that talk to Store go over the network to Google Apps Script,
+ * which can take a few seconds — with no guard, a click that seems
+ * to do nothing invites a repeat click (or three), silently creating
+ * duplicate entries. STATE.busy ignores clicks while one is already
+ * in flight, and disabling the clicked button gives immediate visual
+ * feedback instead of the page looking unresponsive.
+ */
 async function handleGlobalClick(e) {
   const el = e.target.closest("[data-action]");
   if (!el) return;
-  const action = el.dataset.action;
+  if (STATE.busy) return;
+  STATE.busy = true;
+  const wasButton = el.tagName === "BUTTON";
+  if (wasButton) el.disabled = true;
+  try {
+    await dispatchAction(el, el.dataset.action);
+  } finally {
+    STATE.busy = false;
+    if (wasButton && el.isConnected) el.disabled = false; // no-op once render() has already swapped it out
+  }
+}
 
+async function dispatchAction(el, action) {
   if (action === "close-modal") {
     closeModal();
     return;
@@ -1267,6 +1288,7 @@ function openProjectModal(project) {
 
   document.getElementById("project-form").addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (STATE.busy) return;
     const frequency = freqSelect.value;
     const chosenDays = Array.from(daysRow.querySelectorAll("input[type=checkbox]:checked")).map((cb) => cb.value);
     const fields = {
@@ -1278,6 +1300,9 @@ function openProjectModal(project) {
       active: document.getElementById("pf-active").checked,
     };
     if (!fields.name) return;
+    STATE.busy = true;
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    if (submitBtn) submitBtn.disabled = true;
     try {
       let full;
       if (isEdit) {
@@ -1293,6 +1318,9 @@ function openProjectModal(project) {
       showToast(isEdit ? "Project updated" : "Project added");
     } catch (err) {
       showToast(err.message || "Something went wrong", true);
+    } finally {
+      STATE.busy = false;
+      if (submitBtn && submitBtn.isConnected) submitBtn.disabled = false;
     }
   });
 }
@@ -1319,12 +1347,16 @@ function openPersonModal(person) {
   openModal(html);
   document.getElementById("person-form").addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (STATE.busy) return;
     const fields = {
       name: document.getElementById("pe-name").value.trim(),
       email: document.getElementById("pe-email").value.trim(),
       active: true,
     };
     if (!fields.name) return;
+    STATE.busy = true;
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    if (submitBtn) submitBtn.disabled = true;
     try {
       if (isEdit) await Store.updatePerson(person.id, fields);
       else await Store.addPerson(fields);
@@ -1333,6 +1365,9 @@ function openPersonModal(person) {
       showToast(isEdit ? "Person updated" : "Person added");
     } catch (err) {
       showToast(err.message || "Something went wrong", true);
+    } finally {
+      STATE.busy = false;
+      if (submitBtn && submitBtn.isConnected) submitBtn.disabled = false;
     }
   });
 }
