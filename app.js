@@ -781,7 +781,9 @@ function renderProjectView() {
   const summary = summarize(monthEntries);
   const today = todayStr();
 
-  const missing = sortedByPlannedDate(scoped.filter((e) => captureStatus(e) === "missing")).slice(0, 10);
+  const allMissing = sortedByPlannedDate(scoped.filter((e) => captureStatus(e) === "missing"));
+  const missing = allMissing.slice(0, 10);
+  const missingHiddenCount = allMissing.length - missing.length;
   const upcoming = sortedByPlannedDate(
     scoped.filter((e) => captureStatus(e) === "upcoming" && e.plannedDate <= addDays(today, 7))
   ).slice(0, 10);
@@ -863,6 +865,11 @@ function renderProjectView() {
                 )
                 .join("")
             : `<div class="empty-state">Nothing overdue. Clean sheet.</div>`
+        }
+        ${
+          missingHiddenCount > 0
+            ? `<div class="list-row-sub" style="padding-top:8px;">+${missingHiddenCount} more overdue, oldest shown first — see the calendar below for the rest.</div>`
+            : ""
         }
       </div>
       <div class="card card-pad">
