@@ -22,3 +22,13 @@ const API_URL = "https://script.google.com/macros/s/AKfycbxfumqI9geJCH1RCdfeG-TI
 // when a project's capture schedule is set to "recurring". You can
 // always add/remove individual dates by hand afterwards.
 const SCHEDULE_HORIZON_MONTHS = 3;
+
+/**
+ * The passcode that unlocks Admin mode (manage projects/people, and
+ * view every project's calendar combined). This is a light UX gate,
+ * not real security — the Google Sheet backend already accepts
+ * writes from anyone with the site link, same as before. Change it
+ * to something your team wouldn't guess, but don't treat it as a
+ * secret: anyone who reads this file (or the page source) can see it.
+ */
+const ADMIN_PASSCODE = "cupix-admin";

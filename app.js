@@ -2,22 +2,24 @@
  * ============================================================
  *  Cupix Capture Tracker — application logic
  * ============================================================
- * Talks only to `Store` (see data.js). Renders five views into
- * #view-root and uses a single modal (#modal-root) for forms and
- * the calendar day-detail panel.
+ * Talks only to `Store` (see data.js). Three views render into
+ * #view-root: "picker" (choose a project), "project" (that
+ * project's calendar + stats — or, for admins, every project
+ * combined), and "manage" (admin-only project/people setup).
+ * A single modal (#modal-root) handles forms and the calendar
+ * day-detail panel.
  * ============================================================
  */
 
 const STATE = {
-  view: "dashboard",
+  view: "picker", // "picker" | "project" | "manage"
+  selectedProjectId: null, // a real project id, or "all" (admin combined view)
+  lastSingleProjectId: null, // remembered so the "This project" toggle has somewhere to go back to
+  admin: false,
   data: { projects: [], people: [], schedule: [] },
   calendar: (() => {
     const t = new Date();
-    return { year: t.getFullYear(), month: t.getMonth(), projectFilter: "all" };
-  })(),
-  reports: (() => {
-    const t = new Date();
-    return { year: t.getFullYear(), month: t.getMonth(), projectFilter: "all" };
+    return { year: t.getFullYear(), month: t.getMonth() };
   })(),
 };
 
@@ -42,6 +44,10 @@ function personName(id) {
   if (!id) return "Unassigned";
   const p = byId(STATE.data.people, id);
   return p ? p.name : "(removed)";
+}
+
+function activeProjects() {
+  return STATE.data.projects.filter((p) => p.active !== false);
 }
 
 /**
@@ -79,10 +85,6 @@ function formatDateHuman(dateStr) {
     month: "short",
     year: "numeric",
   });
-}
-
-function formatDayMonth(dateStr) {
-  return parseDateStr(dateStr).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
 
 function formatPercent(x) {
@@ -167,9 +169,68 @@ async function afterMutate() {
   render();
 }
 
+/* ================= admin mode ================= */
+
+function openAdminLoginModal() {
+  const html = `
+    <div class="modal-title">Admin access</div>
+    <div class="modal-sub">Enter the admin passcode to manage projects, people, and view every project's calendar combined.</div>
+    <form id="admin-login-form">
+      <div class="form-row">
+        <label for="admin-passcode">Passcode</label>
+        <input type="password" id="admin-passcode" autocomplete="off">
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn" data-action="close-modal">Cancel</button>
+        <button type="submit" class="btn btn-primary">Unlock</button>
+      </div>
+    </form>
+  `;
+  openModal(html);
+  const input = document.getElementById("admin-passcode");
+  input.focus();
+  document.getElementById("admin-login-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (input.value === ADMIN_PASSCODE) {
+      STATE.admin = true;
+      try {
+        localStorage.setItem("cupix_admin", "1");
+      } catch (err) {
+        /* private browsing — admin mode just won't persist across reloads */
+      }
+      closeModal();
+      render();
+      showToast("Admin mode unlocked");
+    } else {
+      showToast("Wrong passcode", true);
+    }
+  });
+}
+
+function exitAdmin() {
+  STATE.admin = false;
+  try {
+    localStorage.removeItem("cupix_admin");
+  } catch (err) {
+    /* ignore */
+  }
+  if (STATE.view === "manage" || STATE.selectedProjectId === "all") {
+    STATE.view = "picker";
+    STATE.selectedProjectId = null;
+  }
+  render();
+  showToast("Exited admin mode");
+}
+
 /* ================= init ================= */
 
 function init() {
+  try {
+    STATE.admin = localStorage.getItem("cupix_admin") === "1";
+  } catch (err) {
+    /* ignore */
+  }
+
   const banner = document.getElementById("mode-banner");
   banner.hidden = false;
   if (Store.mode === "remote") {
@@ -179,13 +240,6 @@ function init() {
     banner.textContent =
       "Demo mode — data is saved only in this browser. Connect Google Sheets (see README.md) so your team shares one tracker.";
   }
-
-  document.querySelectorAll(".tab").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      STATE.view = btn.dataset.view;
-      render();
-    });
-  });
 
   document.addEventListener("click", handleGlobalClick);
 
@@ -201,6 +255,61 @@ async function handleGlobalClick(e) {
 
   if (action === "close-modal") {
     closeModal();
+    return;
+  }
+
+  if (action === "open-admin-login") {
+    openAdminLoginModal();
+    return;
+  }
+  if (action === "exit-admin") {
+    exitAdmin();
+    return;
+  }
+  if (action === "open-manage") {
+    if (!STATE.admin) return;
+    STATE.view = "manage";
+    render();
+    return;
+  }
+  if (action === "back-to-picker") {
+    STATE.view = "picker";
+    STATE.selectedProjectId = null;
+    render();
+    return;
+  }
+  if (action === "select-project") {
+    STATE.selectedProjectId = el.dataset.id;
+    STATE.lastSingleProjectId = el.dataset.id;
+    STATE.view = "project";
+    const t = new Date();
+    STATE.calendar.year = t.getFullYear();
+    STATE.calendar.month = t.getMonth();
+    render();
+    return;
+  }
+  if (action === "select-all-projects" || action === "scope-all") {
+    if (!STATE.admin) return;
+    STATE.selectedProjectId = "all";
+    STATE.view = "project";
+    if (action === "select-all-projects") {
+      const t = new Date();
+      STATE.calendar.year = t.getFullYear();
+      STATE.calendar.month = t.getMonth();
+    }
+    render();
+    return;
+  }
+  if (action === "scope-project") {
+    if (!STATE.admin) return;
+    if (STATE.lastSingleProjectId) {
+      STATE.selectedProjectId = STATE.lastSingleProjectId;
+      render();
+    } else {
+      STATE.view = "picker";
+      STATE.selectedProjectId = null;
+      render();
+    }
     return;
   }
 
@@ -222,37 +331,23 @@ async function handleGlobalClick(e) {
     return;
   }
 
-  if (action === "report-prev" || action === "report-next") {
-    const delta = action === "report-prev" ? -1 : 1;
-    let m = STATE.reports.month + delta;
-    let y = STATE.reports.year;
-    if (m < 0) { m = 11; y -= 1; }
-    if (m > 11) { m = 0; y += 1; }
-    STATE.reports.month = m;
-    STATE.reports.year = y;
-    render();
-    return;
-  }
-
-  if (action === "print-report") {
-    window.print();
-    return;
-  }
-
   if (action === "open-day") {
     openDayModal(el.dataset.date);
     return;
   }
 
   if (action === "add-project") {
+    if (!STATE.admin) return;
     openProjectModal(null);
     return;
   }
   if (action === "edit-project") {
+    if (!STATE.admin) return;
     openProjectModal(byId(STATE.data.projects, el.dataset.id));
     return;
   }
   if (action === "delete-project") {
+    if (!STATE.admin) return;
     if (!confirm("Delete this project and all of its planned/captured dates? This can't be undone.")) return;
     try {
       await Store.deleteProject(el.dataset.id);
@@ -264,6 +359,7 @@ async function handleGlobalClick(e) {
     return;
   }
   if (action === "regen-schedule") {
+    if (!STATE.admin) return;
     const project = byId(STATE.data.projects, el.dataset.id);
     try {
       await regenerateSchedule(project);
@@ -276,14 +372,17 @@ async function handleGlobalClick(e) {
   }
 
   if (action === "add-person") {
+    if (!STATE.admin) return;
     openPersonModal(null);
     return;
   }
   if (action === "edit-person") {
+    if (!STATE.admin) return;
     openPersonModal(byId(STATE.data.people, el.dataset.id));
     return;
   }
   if (action === "delete-person") {
+    if (!STATE.admin) return;
     if (!confirm("Remove this person? Captures already logged under their name will show as “removed”.")) return;
     try {
       await Store.deletePerson(el.dataset.id);
@@ -352,6 +451,7 @@ async function handleGlobalClick(e) {
   }
 
   if (action === "delete-entry") {
+    if (!STATE.admin) return;
     if (!confirm("Remove this planned capture?")) return;
     try {
       await Store.deleteScheduleEntry(el.dataset.id);
@@ -366,6 +466,7 @@ async function handleGlobalClick(e) {
   }
 
   if (action === "add-entry-for-day") {
+    if (!STATE.admin) return;
     const date = el.dataset.date;
     const projectSel = document.getElementById("add-entry-project");
     const personSel = document.getElementById("add-entry-person");
@@ -391,37 +492,38 @@ async function handleGlobalClick(e) {
 /* ================= render dispatch ================= */
 
 function render() {
-  document.querySelectorAll(".tab").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.view === STATE.view);
-  });
+  if (STATE.view === "project" && !STATE.selectedProjectId) STATE.view = "picker";
+  if (STATE.view === "manage" && !STATE.admin) STATE.view = "picker";
+
   const root = document.getElementById("view-root");
-  if (STATE.view === "dashboard") root.innerHTML = renderDashboard();
-  else if (STATE.view === "calendar") renderCalendarInto(root);
-  else if (STATE.view === "projects") root.innerHTML = renderProjects();
-  else if (STATE.view === "people") root.innerHTML = renderPeople();
-  else if (STATE.view === "reports") root.innerHTML = renderReports();
+  if (STATE.view === "picker") root.innerHTML = renderPicker();
+  else if (STATE.view === "project") root.innerHTML = renderProjectView();
+  else if (STATE.view === "manage") root.innerHTML = renderManage();
+
+  renderTopbarActions();
   wireViewInputs();
 }
 
+function renderTopbarActions() {
+  const root = document.getElementById("topbar-actions");
+  if (!root) return;
+  const parts = [];
+  if (STATE.view !== "picker") {
+    parts.push(`<button class="btn btn-small" data-action="back-to-picker">&larr; Choose project</button>`);
+  }
+  if (STATE.admin) {
+    parts.push(`<button class="btn btn-small" data-action="open-manage">Manage</button>`);
+    parts.push(`<button class="btn btn-small" data-action="exit-admin">Exit admin</button>`);
+  } else {
+    parts.push(`<button class="btn btn-small" data-action="open-admin-login">Admin</button>`);
+  }
+  root.innerHTML = parts.join("");
+}
+
 function wireViewInputs() {
-  const projFilter = document.getElementById("calendar-project-filter");
-  if (projFilter) {
-    projFilter.value = STATE.calendar.projectFilter;
-    projFilter.addEventListener("change", () => {
-      STATE.calendar.projectFilter = projFilter.value;
-      render();
-    });
-  }
-  const reportFilter = document.getElementById("report-project-filter");
-  if (reportFilter) {
-    reportFilter.value = STATE.reports.projectFilter;
-    reportFilter.addEventListener("change", () => {
-      STATE.reports.projectFilter = reportFilter.value;
-      render();
-    });
-  }
   document.querySelectorAll("[data-toggle-active]").forEach((cb) => {
     cb.addEventListener("change", async () => {
+      if (!STATE.admin) return;
       try {
         await Store.updateProject(cb.dataset.toggleActive, { active: cb.checked });
         await afterMutate();
@@ -432,38 +534,101 @@ function wireViewInputs() {
   });
 }
 
-/* ================= Dashboard ================= */
+/* ================= Picker (landing) ================= */
 
-function renderDashboard() {
-  const today = todayStr();
-  const t = new Date();
-  const monthEntries = entriesInMonth(STATE.data.schedule, t.getFullYear(), t.getMonth());
-  const summary = summarize(monthEntries);
-
-  const missing = sortedByPlannedDate(
-    STATE.data.schedule.filter((e) => captureStatus(e) === "missing")
-  ).slice(0, 8);
-
-  const upcoming = sortedByPlannedDate(
-    STATE.data.schedule.filter((e) => {
-      if (captureStatus(e) !== "upcoming") return false;
-      return e.plannedDate <= addDays(today, 7);
-    })
-  ).slice(0, 8);
-
-  const projectRows = STATE.data.projects
-    .filter((p) => p.active !== false)
+function renderPicker() {
+  const cards = activeProjects()
     .map((p) => {
-      const s = summarize(filterByProject(monthEntries, p.id));
-      return { p, s };
-    });
+      const s = summarize(filterByProject(STATE.data.schedule, p.id));
+      return `
+        <button type="button" class="project-card" data-action="select-project" data-id="${p.id}">
+          <div class="project-card-name">${escapeHtml(p.name)}</div>
+          <div class="project-card-meta">${frequencyLabel(p.frequency)} · ${escapeHtml(personName(p.defaultAssigneeId))}</div>
+          <div class="project-card-stats">
+            <span class="chip chip-${s.missing > 0 ? "missing" : "on-time"}">${s.missing > 0 ? s.missing + " missing" : "up to date"}</span>
+            <span class="project-card-rate">${formatPercent(s.onTimeRate)} on-time</span>
+          </div>
+        </button>`;
+    })
+    .join("");
+
+  const allCard = STATE.admin
+    ? `
+      <button type="button" class="project-card project-card-all" data-action="select-all-projects">
+        <div class="project-card-name">All projects</div>
+        <div class="project-card-meta">Combined calendar across every active project</div>
+      </button>`
+    : "";
 
   return `
     <div class="view-header">
       <div>
-        <h1>Dashboard</h1>
-        <p>${monthLabel(t.getFullYear(), t.getMonth())} overview across ${STATE.data.projects.length} project${STATE.data.projects.length === 1 ? "" : "s"}</p>
+        <h1>Choose a project</h1>
+        <p>Pick a project to see its capture calendar and log an upload.</p>
       </div>
+    </div>
+    <div class="project-picker-grid">
+      ${allCard}
+      ${cards || `<div class="card card-pad empty-state">No active projects yet.${STATE.admin ? " Add one from Manage." : ""}</div>`}
+    </div>
+  `;
+}
+
+/* ================= Project view (calendar + stats, scoped) ================= */
+
+function renderProjectView() {
+  const scopeId = STATE.selectedProjectId;
+  const isAll = scopeId === "all";
+  const project = isAll ? null : byId(STATE.data.projects, scopeId);
+
+  if (!isAll && !project) {
+    STATE.view = "picker";
+    STATE.selectedProjectId = null;
+    return renderPicker();
+  }
+
+  const { year, month } = STATE.calendar;
+  const scoped = filterByProject(STATE.data.schedule, scopeId);
+  const monthEntries = entriesInMonth(scoped, year, month);
+  const summary = summarize(monthEntries);
+  const today = todayStr();
+
+  const missing = sortedByPlannedDate(scoped.filter((e) => captureStatus(e) === "missing")).slice(0, 10);
+  const upcoming = sortedByPlannedDate(
+    scoped.filter((e) => captureStatus(e) === "upcoming" && e.plannedDate <= addDays(today, 7))
+  ).slice(0, 10);
+
+  const scopeToggle = STATE.admin
+    ? `
+      <div class="scope-toggle">
+        <button type="button" class="scope-toggle-btn ${!isAll ? "active" : ""}" data-action="scope-project">This project</button>
+        <button type="button" class="scope-toggle-btn ${isAll ? "active" : ""}" data-action="scope-all">All projects</button>
+      </div>`
+    : "";
+
+  const personRows = STATE.data.people
+    .map((person) => {
+      const s = summarize(scoped.filter((e) => e.personId === person.id));
+      if (s.total === 0) return "";
+      return `
+        <tr>
+          <td>${escapeHtml(person.name)}</td>
+          <td class="num">${s.due}</td>
+          <td class="num">${s["on-time"]}</td>
+          <td class="num">${s.late}</td>
+          <td class="num">${s.missing}</td>
+          <td class="num"><strong>${formatPercent(s.onTimeRate)}</strong></td>
+        </tr>`;
+    })
+    .join("");
+
+  return `
+    <div class="view-header">
+      <div>
+        <h1>${isAll ? "All projects" : escapeHtml(project.name)}</h1>
+        <p>${isAll ? "Combined view across every active project" : `${frequencyLabel(project.frequency)} · ${escapeHtml(personName(project.defaultAssigneeId))}`}</p>
+      </div>
+      ${scopeToggle}
     </div>
 
     <div class="card-grid">
@@ -499,8 +664,8 @@ function renderDashboard() {
                   (e) => `
               <div class="list-row" data-entry-row>
                 <div class="list-row-main">
-                  <div class="list-row-title">${escapeHtml(projectName(e.projectId))}</div>
-                  <div class="list-row-sub">Planned ${formatDateHuman(e.plannedDate)} · ${daysOverdue(e.plannedDate)}d overdue</div>
+                  <div class="list-row-title">${isAll ? escapeHtml(projectName(e.projectId)) : formatDateHuman(e.plannedDate)}</div>
+                  <div class="list-row-sub">${isAll ? `Planned ${formatDateHuman(e.plannedDate)} · ` : ""}${daysOverdue(e.plannedDate)}d overdue</div>
                 </div>
                 <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
                   ${picSelectHtml(e.id, e.personId)}
@@ -521,8 +686,8 @@ function renderDashboard() {
                   (e) => `
               <div class="list-row">
                 <div class="list-row-main">
-                  <div class="list-row-title">${escapeHtml(projectName(e.projectId))}</div>
-                  <div class="list-row-sub">${formatDateHuman(e.plannedDate)} · ${escapeHtml(personName(e.personId))}</div>
+                  <div class="list-row-title">${isAll ? escapeHtml(projectName(e.projectId)) : formatDateHuman(e.plannedDate)}</div>
+                  <div class="list-row-sub">${isAll ? `${formatDateHuman(e.plannedDate)} · ` : ""}${escapeHtml(personName(e.personId))}</div>
                 </div>
                 <span class="chip chip-upcoming">Upcoming</span>
               </div>`
@@ -533,34 +698,26 @@ function renderDashboard() {
       </div>
     </div>
 
-    <div class="card card-pad" style="margin-top:16px;">
-      <div class="section-title">Projects this month</div>
-      ${
-        projectRows.length
-          ? projectRows
-              .map(
-                ({ p, s }) => `
-            <div class="list-row">
-              <div class="list-row-main">
-                <div class="list-row-title">${escapeHtml(p.name)}</div>
-                <div class="list-row-sub">${s.due} due · ${s["on-time"]} on time · ${s.missing} missing</div>
-              </div>
-              <div style="display:flex; align-items:center; gap:10px;">
-                <div class="progress-track" style="width:120px;">
-                  <div class="progress-fill" style="width:${Math.round((s.onTimeRate ?? 0) * 100)}%; background:${s.missing > 0 ? "var(--amber-text)" : "var(--green-text)"};"></div>
-                </div>
-                <span style="font-size:13px; font-weight:600;">${formatPercent(s.onTimeRate)}</span>
-              </div>
-            </div>`
-              )
-              .join("")
-          : `<div class="empty-state">No active projects yet. Add one from the Projects tab.</div>`
-      }
-    </div>
+    ${renderCalendarSection(scoped, year, month, isAll)}
+
+    ${
+      personRows
+        ? `
+    <div class="card" style="margin-top:16px;">
+      <div class="card-pad" style="padding-bottom:0;">
+        <div class="section-title">By person — ${monthLabel(year, month)}</div>
+      </div>
+      <table>
+        <thead><tr><th>Person</th><th class="num">Due</th><th class="num">On time</th><th class="num">Late</th><th class="num">Missing</th><th class="num">On-time rate</th></tr></thead>
+        <tbody>${personRows}</tbody>
+      </table>
+    </div>`
+        : ""
+    }
   `;
 }
 
-/* ================= Calendar ================= */
+/* ================= Calendar (shared grid, scoped by caller) ================= */
 
 function getMonthMatrix(year, month) {
   const first = new Date(year, month, 1);
@@ -585,81 +742,65 @@ function getMonthMatrix(year, month) {
   return weeks;
 }
 
-function renderCalendarInto(root) {
-  const { year, month, projectFilter } = STATE.calendar;
+function renderCalendarSection(scopedEntries, year, month, isAll) {
   const weeks = getMonthMatrix(year, month);
   const today = todayStr();
   const dows = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-  const html = `
-    <div class="view-header">
-      <div>
-        <h1>Calendar</h1>
-        <p>Planned capture dates. Click any day to log a capture or add one.</p>
+  return `
+    <div class="card card-pad" style="margin-top:16px;">
+      <div class="calendar-toolbar">
+        <div class="calendar-nav">
+          <button class="btn btn-small" data-action="cal-prev">&larr;</button>
+          <div class="calendar-month-label">${monthLabel(year, month)}</div>
+          <button class="btn btn-small" data-action="cal-next">&rarr;</button>
+        </div>
+        <button class="btn btn-small" data-action="cal-today">Today</button>
       </div>
-      <div class="actions">
-        <select id="calendar-project-filter">
-          <option value="all">All projects</option>
-          ${STATE.data.projects.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("")}
-        </select>
+
+      <div class="calendar-legend">
+        <span><i class="legend-on-time"></i>On time</span>
+        <span><i class="legend-late"></i>Late</span>
+        <span><i class="legend-missing"></i>Missing</span>
+        <span><i class="legend-upcoming"></i>Upcoming</span>
       </div>
-    </div>
 
-    <div class="calendar-toolbar">
-      <div class="calendar-nav">
-        <button class="btn btn-small" data-action="cal-prev">&larr;</button>
-        <div class="calendar-month-label">${monthLabel(year, month)}</div>
-        <button class="btn btn-small" data-action="cal-next">&rarr;</button>
-      </div>
-      <button class="btn btn-small" data-action="cal-today">Today</button>
-    </div>
-
-    <div class="calendar-legend">
-      <span><i class="legend-on-time"></i>On time</span>
-      <span><i class="legend-late"></i>Late</span>
-      <span><i class="legend-missing"></i>Missing</span>
-      <span><i class="legend-upcoming"></i>Upcoming</span>
-    </div>
-
-    <div class="calendar-grid">
-      ${dows.map((d) => `<div class="calendar-dow">${d}</div>`).join("")}
-      ${weeks
-        .map((week) =>
-          week
-            .map((day) => {
-              const dayEntries = filterByProject(
-                STATE.data.schedule.filter((e) => e.plannedDate === day.dateStr),
-                projectFilter
-              );
-              const shown = dayEntries.slice(0, 3);
-              const extra = dayEntries.length - shown.length;
-              return `
+      <div class="calendar-grid">
+        ${dows.map((d) => `<div class="calendar-dow">${d}</div>`).join("")}
+        ${weeks
+          .map((week) =>
+            week
+              .map((day) => {
+                const dayEntries = scopedEntries.filter((e) => e.plannedDate === day.dateStr);
+                const shown = dayEntries.slice(0, 3);
+                const extra = dayEntries.length - shown.length;
+                return `
               <button type="button" class="calendar-day ${day.inMonth ? "" : "outside"} ${day.dateStr === today ? "today" : ""}" data-action="open-day" data-date="${day.dateStr}">
                 <div class="calendar-day-num">${day.dayNum}</div>
                 <div style="display:flex; flex-direction:column; gap:3px;">
                   ${shown
                     .map((e) => {
                       const status = captureStatus(e);
-                      return `<div class="calendar-day-item chip-${status}">${escapeHtml(projectName(e.projectId))}</div>`;
+                      const label = isAll ? projectName(e.projectId) : personName(e.personId);
+                      return `<div class="calendar-day-item chip-${status}">${escapeHtml(label)}</div>`;
                     })
                     .join("")}
                   ${extra > 0 ? `<div class="calendar-day-item" style="background:var(--surface-alt); color:var(--text-muted);">+${extra} more</div>` : ""}
                 </div>
               </button>`;
-            })
-            .join("")
-        )
-        .join("")}
+              })
+              .join("")
+          )
+          .join("")}
+      </div>
     </div>
   `;
-  root.innerHTML = html;
 }
 
 function openDayModal(dateStr) {
-  const entries = sortedByPlannedDate(
-    STATE.data.schedule.filter((e) => e.plannedDate === dateStr)
-  );
-  const activeProjects = STATE.data.projects.filter((p) => p.active !== false);
+  const isAll = STATE.selectedProjectId === "all";
+  const scoped = filterByProject(STATE.data.schedule, STATE.selectedProjectId);
+  const entries = sortedByPlannedDate(scoped.filter((e) => e.plannedDate === dateStr));
 
   const rows = entries
     .map((e) => {
@@ -679,37 +820,46 @@ function openDayModal(dateStr) {
       return `
         <div class="day-detail-item" data-entry-row>
           <div class="list-row-main">
-            <div class="list-row-title">${escapeHtml(projectName(e.projectId))}</div>
-            <div class="list-row-sub">${e.capturedDate ? escapeHtml(personName(e.personId)) + " · " : ""}${statusChip}</div>
+            <div class="list-row-title">${isAll ? escapeHtml(projectName(e.projectId)) : escapeHtml(personName(e.personId))}</div>
+            <div class="list-row-sub">${e.capturedDate && isAll ? escapeHtml(personName(e.personId)) + " · " : ""}${statusChip}</div>
           </div>
           <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
             ${actionHtml}
-            <button class="btn btn-small btn-danger" data-action="delete-entry" data-id="${e.id}" data-reopen-date="${dateStr}" title="Remove">&times;</button>
+            ${STATE.admin ? `<button class="btn btn-small btn-danger" data-action="delete-entry" data-id="${e.id}" data-reopen-date="${dateStr}" title="Remove">&times;</button>` : ""}
           </div>
         </div>`;
     })
     .join("");
 
-  const html = `
-    <div class="modal-title">${formatDateHuman(dateStr)}</div>
-    <div class="modal-sub">Planned captures for this day</div>
-    <div class="day-detail-list">
-      ${rows || `<div class="empty-state">No captures planned for this day yet.</div>`}
-    </div>
+  const addEntryBlock = STATE.admin
+    ? `
     <div class="form-row">
       <label>Add a planned capture</label>
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
-        <select id="add-entry-project" style="flex:1; min-width:160px; border:1px solid var(--border); border-radius:8px; padding:8px;">
-          <option value="">Choose project…</option>
-          ${activeProjects.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("")}
-        </select>
+        ${
+          isAll
+            ? `<select id="add-entry-project" style="flex:1; min-width:160px; border:1px solid var(--border); border-radius:8px; padding:8px;">
+                <option value="">Choose project…</option>
+                ${activeProjects().map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("")}
+              </select>`
+            : `<input type="hidden" id="add-entry-project" value="${STATE.selectedProjectId}">`
+        }
         <select id="add-entry-person" style="flex:1; min-width:140px; border:1px solid var(--border); border-radius:8px; padding:8px;">
           <option value="">Unassigned</option>
           ${STATE.data.people.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("")}
         </select>
         <button class="btn btn-primary" data-action="add-entry-for-day" data-date="${dateStr}">Add</button>
       </div>
+    </div>`
+    : "";
+
+  const html = `
+    <div class="modal-title">${formatDateHuman(dateStr)}${!isAll ? " · " + escapeHtml(projectName(STATE.selectedProjectId)) : ""}</div>
+    <div class="modal-sub">Planned captures for this day</div>
+    <div class="day-detail-list">
+      ${rows || `<div class="empty-state">No captures planned for this day yet.</div>`}
     </div>
+    ${addEntryBlock}
     <div class="form-actions">
       <button type="button" class="btn" data-action="close-modal">Close</button>
     </div>
@@ -717,10 +867,10 @@ function openDayModal(dateStr) {
   openModal(html);
 }
 
-/* ================= Projects ================= */
+/* ================= Manage (admin-only: projects + people) ================= */
 
-function renderProjects() {
-  const rows = STATE.data.projects
+function projectsTableRows() {
+  return STATE.data.projects
     .map((p) => {
       const s = summarize(filterByProject(STATE.data.schedule, p.id));
       return `
@@ -749,34 +899,93 @@ function renderProjects() {
         </tr>`;
     })
     .join("");
+}
 
+function peopleCards() {
+  return STATE.data.people
+    .map((person) => {
+      const s = summarize(STATE.data.schedule.filter((e) => e.personId === person.id));
+      const rate = s.onTimeRate ?? 0;
+      return `
+        <div class="card person-card">
+          <div class="person-header">
+            <div style="display:flex; align-items:center; gap:10px;">
+              <div class="avatar">${initials(person.name)}</div>
+              <div>
+                <div style="font-weight:600;">${escapeHtml(person.name)}</div>
+                ${person.email ? `<div class="list-row-sub">${escapeHtml(person.email)}</div>` : ""}
+              </div>
+            </div>
+            <div class="actions">
+              <button class="btn btn-small" data-action="edit-person" data-id="${person.id}">Edit</button>
+              <button class="btn btn-small btn-danger" data-action="delete-person" data-id="${person.id}">Delete</button>
+            </div>
+          </div>
+          ${
+            s.due
+              ? `
+              <div class="progress-track"><div class="progress-fill" style="width:${Math.round(rate * 100)}%; background:${s.missing > 0 ? "var(--amber-text)" : "var(--green-text)"};"></div></div>
+              <div class="metric-row"><span>On time: <strong style="color:var(--text);">${formatPercent(s.onTimeRate)}</strong></span><span>Missing: <strong style="color:var(--text);">${formatPercent(s.missingRate)}</strong></span></div>
+              <div class="metric-row"><span>${s["on-time"]} on time</span><span>${s.late} late</span><span>${s.missing} missing</span></div>`
+              : `<div class="empty-state" style="padding:10px 0;">No captures logged yet</div>`
+          }
+        </div>`;
+    })
+    .join("");
+}
+
+function renderManage() {
   return `
     <div class="view-header">
       <div>
-        <h1>Projects</h1>
-        <p>${STATE.data.projects.length} project${STATE.data.projects.length === 1 ? "" : "s"} tracked</p>
-      </div>
-      <div class="actions">
-        <button class="btn btn-primary" data-action="add-project">+ Add project</button>
+        <h1>Manage</h1>
+        <p>Admin-only — projects, people, and capture schedules.</p>
       </div>
     </div>
-    <div class="card">
-      <table>
-        <thead>
-          <tr>
-            <th>Project</th>
-            <th>Default owner</th>
-            <th>Status</th>
-            <th class="num">Due</th>
-            <th class="num">On-time</th>
-            <th class="num">Missing</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows || `<tr><td colspan="7"><div class="empty-state">No projects yet — add your first one.</div></td></tr>`}
-        </tbody>
-      </table>
+
+    <div class="manage-section">
+      <div class="view-header" style="margin-bottom:12px;">
+        <div>
+          <h2>Projects</h2>
+          <p>${STATE.data.projects.length} project${STATE.data.projects.length === 1 ? "" : "s"} tracked</p>
+        </div>
+        <div class="actions">
+          <button class="btn btn-primary" data-action="add-project">+ Add project</button>
+        </div>
+      </div>
+      <div class="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Project</th>
+              <th>Default owner</th>
+              <th>Status</th>
+              <th class="num">Due</th>
+              <th class="num">On-time</th>
+              <th class="num">Missing</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${projectsTableRows() || `<tr><td colspan="7"><div class="empty-state">No projects yet — add your first one.</div></td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="manage-section" style="margin-top:28px;">
+      <div class="view-header" style="margin-bottom:12px;">
+        <div>
+          <h2>People</h2>
+          <p>Capture owners and their track record</p>
+        </div>
+        <div class="actions">
+          <button class="btn btn-primary" data-action="add-person">+ Add person</button>
+        </div>
+      </div>
+      <div class="card-grid">
+        ${peopleCards() || `<div class="card card-pad empty-state">No people added yet.</div>`}
+      </div>
     </div>
   `;
 }
@@ -852,56 +1061,6 @@ function openProjectModal(project) {
   });
 }
 
-/* ================= People ================= */
-
-function renderPeople() {
-  const cards = STATE.data.people
-    .map((person) => {
-      const s = summarize(STATE.data.schedule.filter((e) => e.personId === person.id));
-      const rate = s.onTimeRate ?? 0;
-      return `
-        <div class="card person-card">
-          <div class="person-header">
-            <div style="display:flex; align-items:center; gap:10px;">
-              <div class="avatar">${initials(person.name)}</div>
-              <div>
-                <div style="font-weight:600;">${escapeHtml(person.name)}</div>
-                ${person.email ? `<div class="list-row-sub">${escapeHtml(person.email)}</div>` : ""}
-              </div>
-            </div>
-            <div class="actions">
-              <button class="btn btn-small" data-action="edit-person" data-id="${person.id}">Edit</button>
-              <button class="btn btn-small btn-danger" data-action="delete-person" data-id="${person.id}">Delete</button>
-            </div>
-          </div>
-          ${
-            s.due
-              ? `
-              <div class="progress-track"><div class="progress-fill" style="width:${Math.round(rate * 100)}%; background:${s.missing > 0 ? "var(--amber-text)" : "var(--green-text)"};"></div></div>
-              <div class="metric-row"><span>On time: <strong style="color:var(--text);">${formatPercent(s.onTimeRate)}</strong></span><span>Missing: <strong style="color:var(--text);">${formatPercent(s.missingRate)}</strong></span></div>
-              <div class="metric-row"><span>${s["on-time"]} on time</span><span>${s.late} late</span><span>${s.missing} missing</span></div>`
-              : `<div class="empty-state" style="padding:10px 0;">No captures logged yet</div>`
-          }
-        </div>`;
-    })
-    .join("");
-
-  return `
-    <div class="view-header">
-      <div>
-        <h1>People</h1>
-        <p>Capture owners and their track record</p>
-      </div>
-      <div class="actions">
-        <button class="btn btn-primary" data-action="add-person">+ Add person</button>
-      </div>
-    </div>
-    <div class="card-grid">
-      ${cards || `<div class="card card-pad empty-state">No people added yet.</div>`}
-    </div>
-  `;
-}
-
 function openPersonModal(person) {
   const isEdit = !!person;
   const html = `
@@ -940,102 +1099,6 @@ function openPersonModal(person) {
       showToast(err.message || "Something went wrong", true);
     }
   });
-}
-
-/* ================= Reports ================= */
-
-function renderReports() {
-  const { year, month, projectFilter } = STATE.reports;
-  const monthEntries = filterByProject(entriesInMonth(STATE.data.schedule, year, month), projectFilter);
-  const overall = summarize(monthEntries);
-
-  const projects = projectFilter === "all" ? STATE.data.projects : STATE.data.projects.filter((p) => p.id === projectFilter);
-  const projectRows = projects
-    .map((p) => {
-      const s = summarize(filterByProject(monthEntries, p.id));
-      return `
-        <tr>
-          <td>${escapeHtml(p.name)}</td>
-          <td class="num">${s.due + s.upcoming}</td>
-          <td class="num">${s["on-time"]}</td>
-          <td class="num">${s.late}</td>
-          <td class="num">${s.missing}</td>
-          <td class="num"><strong>${formatPercent(s.onTimeRate)}</strong></td>
-        </tr>`;
-    })
-    .join("");
-
-  const personRows = STATE.data.people
-    .map((person) => {
-      const s = summarize(monthEntries.filter((e) => e.personId === person.id));
-      if (s.total === 0) return "";
-      return `
-        <tr>
-          <td>${escapeHtml(person.name)}</td>
-          <td class="num">${s.due}</td>
-          <td class="num">${s["on-time"]}</td>
-          <td class="num">${s.late}</td>
-          <td class="num">${s.missing}</td>
-          <td class="num"><strong>${formatPercent(s.onTimeRate)}</strong></td>
-        </tr>`;
-    })
-    .join("");
-
-  return `
-    <div class="view-header">
-      <div>
-        <h1>Monthly report</h1>
-        <p>Model capture integrity summary</p>
-      </div>
-      <div class="actions">
-        <select id="report-project-filter">
-          <option value="all">All projects</option>
-          ${STATE.data.projects.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("")}
-        </select>
-        <button class="btn" data-action="print-report">Print / Save as PDF</button>
-      </div>
-    </div>
-
-    <div class="calendar-toolbar">
-      <div class="calendar-nav">
-        <button class="btn btn-small" data-action="report-prev">&larr;</button>
-        <div class="calendar-month-label">${monthLabel(year, month)}</div>
-        <button class="btn btn-small" data-action="report-next">&rarr;</button>
-      </div>
-    </div>
-
-    <div class="card card-pad" style="margin-bottom:16px;">
-      <div class="report-summary">
-        <div class="report-score">${formatPercent(overall.onTimeRate)}</div>
-        <div class="list-row-sub">overall on-time capture rate</div>
-      </div>
-      <div class="list-row-sub">
-        ${monthEntries.length} planned · ${overall["on-time"]} on time · ${overall.late} late ·
-        ${overall.missing} missing · ${overall.upcoming} not yet due ·
-        missing rate ${formatPercent(overall.missingRate)}
-      </div>
-    </div>
-
-    <div class="card" style="margin-bottom:16px;">
-      <div class="card-pad" style="padding-bottom:0;">
-        <div class="section-title">By project</div>
-      </div>
-      <table>
-        <thead><tr><th>Project</th><th class="num">Planned</th><th class="num">On time</th><th class="num">Late</th><th class="num">Missing</th><th class="num">Integrity</th></tr></thead>
-        <tbody>${projectRows || `<tr><td colspan="6"><div class="empty-state">No planned captures this month.</div></td></tr>`}</tbody>
-      </table>
-    </div>
-
-    <div class="card">
-      <div class="card-pad" style="padding-bottom:0;">
-        <div class="section-title">By person</div>
-      </div>
-      <table>
-        <thead><tr><th>Person</th><th class="num">Due</th><th class="num">On time</th><th class="num">Late</th><th class="num">Missing</th><th class="num">On-time rate</th></tr></thead>
-        <tbody>${personRows || `<tr><td colspan="6"><div class="empty-state">No activity logged this month.</div></td></tr>`}</tbody>
-      </table>
-    </div>
-  `;
 }
 
 /* ================= boot ================= */

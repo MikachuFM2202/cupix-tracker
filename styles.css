@@ -112,35 +112,11 @@ a {
   color: var(--text-muted);
 }
 
-.tabs {
+.topbar-actions {
   display: flex;
-  gap: 4px;
-  background: var(--surface-alt);
-  padding: 4px;
-  border-radius: 999px;
+  align-items: center;
+  gap: 8px;
   flex-wrap: wrap;
-}
-
-.tab {
-  border: none;
-  background: transparent;
-  padding: 8px 16px;
-  border-radius: 999px;
-  cursor: pointer;
-  font-weight: 500;
-  color: var(--text-muted);
-  transition: background 0.15s, color 0.15s;
-  white-space: nowrap;
-}
-
-.tab:hover {
-  color: var(--text);
-}
-
-.tab.active {
-  background: var(--surface);
-  color: var(--accent);
-  box-shadow: var(--shadow);
 }
 
 .mode-banner {
@@ -343,6 +319,104 @@ a {
   text-align: center;
   color: var(--text-muted);
   font-size: 14px;
+}
+
+/* ---------- project picker ---------- */
+
+.project-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.project-card {
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 20px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: border-color 0.15s, transform 0.1s;
+}
+
+.project-card:hover {
+  border-color: var(--accent);
+}
+
+.project-card:active {
+  transform: scale(0.99);
+}
+
+.project-card-name {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.project-card-meta {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.project-card-stats {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.project-card-rate {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.project-card-all {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+/* ---------- scope toggle (admin: this project / all projects) ---------- */
+
+.scope-toggle {
+  display: flex;
+  gap: 4px;
+  background: var(--surface-alt);
+  padding: 4px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.scope-toggle-btn {
+  border: none;
+  background: transparent;
+  padding: 7px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.scope-toggle-btn:hover {
+  color: var(--text);
+}
+
+.scope-toggle-btn.active {
+  background: var(--surface);
+  color: var(--accent);
+  box-shadow: var(--shadow);
+}
+
+/* ---------- manage (admin) ---------- */
+
+.manage-section h2 {
+  font-size: 18px;
 }
 
 /* ---------- calendar ---------- */
@@ -646,20 +720,6 @@ tbody tr:hover {
   flex-wrap: wrap;
 }
 
-/* ---------- reports ---------- */
-
-.report-summary {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  margin-bottom: 4px;
-}
-
-.report-score {
-  font-size: 36px;
-  font-weight: 700;
-}
-
 .toast-root {
   position: fixed;
   bottom: 20px;
@@ -690,31 +750,13 @@ tbody tr:hover {
     flex-direction: column;
     align-items: flex-start;
   }
-  .tabs {
+  .topbar-actions {
     width: 100%;
-    overflow-x: auto;
   }
   .view-root {
     padding: 18px;
   }
   .calendar-day {
     min-height: 72px;
-  }
-}
-
-/* ---------- print (Reports view) ---------- */
-
-@media print {
-  .topbar, .tabs, .mode-banner, .actions, .toast-root {
-    display: none !important;
-  }
-  body, .view-root {
-    background: #fff;
-    padding: 0;
-    margin: 0;
-  }
-  .card {
-    box-shadow: none;
-    border: 1px solid #ccc;
   }
 }

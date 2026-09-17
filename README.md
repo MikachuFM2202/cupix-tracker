@@ -91,24 +91,31 @@ the URL in `config.js` keeps working.
 
 ## How the tracker works
 
-- **Dashboard** — this month's numbers at a glance, plus what's overdue
-  and what's coming up in the next 7 days.
-- **Calendar** — a full month view of every planned capture date. Click
-  any day to see what's due, mark something as captured (with the actual
-  date it happened), undo a mistaken entry, or add a one-off planned
-  date.
-- **Projects** — add projects, set who owns capture for each one, and
-  how often it's expected: weekly, every 2 weeks, monthly, or "manual" if
-  the dates don't follow a pattern. Recurring projects auto-generate the
-  next 3 months of planned dates (tweak `SCHEDULE_HORIZON_MONTHS` in
-  `config.js` to change that window); use **Refresh schedule** any time
-  to top up further dates once you get close to running out.
-- **People** — add the people responsible for captures. Each profile
-  shows their on-time rate, missing rate, and a breakdown of on-time /
-  late / missing counts, computed automatically from the calendar.
-- **Reports** — pick any month and see the overall capture integrity
-  score, broken down by project and by person. **Print / Save as PDF**
-  uses your browser's print dialog to export it.
+Everyone lands on a **project picker** — no accounts, no menus. Pick a
+project and you get that project's own calendar, this month's numbers,
+what's overdue, and what's coming up in the next 7 days, all on one
+page. Click any day to check in: pick your name from the People list
+and mark it captured. That's the whole job for most people.
+
+**Admin mode** unlocks more, gated by a shared passcode (see
+`ADMIN_PASSCODE` in `config.js` — change it from the default):
+
+- An **All projects** toggle on the project view, and an "All
+  projects" card on the picker, to see every project's calendar
+  combined instead of one at a time.
+- **Manage** — one screen for both projects and people:
+  - **Projects** — add projects, set who owns capture for each one,
+    and how often it's expected: weekly, every 2 weeks, monthly, or
+    "manual" if the dates don't follow a pattern. Recurring projects
+    auto-generate the next 3 months of planned dates (tweak
+    `SCHEDULE_HORIZON_MONTHS` in `config.js` to change that window);
+    use **Refresh schedule** any time to top up further dates.
+  - **People** — the admin-managed roster everyone picks from when
+    checking in. Each profile shows their on-time rate, missing rate,
+    and a breakdown of on-time / late / missing counts.
+  - Adding a one-off planned date or removing a planned capture, from
+    the day-detail panel, is also admin-only — regular check-in
+    (mark captured / undo) stays open to everyone.
 
 **Definitions used throughout:**
 - **On time** — captured on or before its planned date.
