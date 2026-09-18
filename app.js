@@ -16,8 +16,7 @@ const STATE = {
   selectedProjectId: null, // a real project id, or "all" (admin combined view)
   selectedPersonId: null, // set while STATE.view === "person"
   personProfileFrom: null, // { view, selectedProjectId } to return to when leaving a person's profile
-  reportProjectId: null, // a real project id, or "all" — the report's current scope
-  reportHomeProjectId: null, // the specific project the report was opened for, or null if opened from "All projects" (lets the in-report toggle switch back to it)
+  reportProjectIds: [], // project ids currently included in the report, chosen via the "Choose projects" checklist
   reportYear: null,
   reportMonth: null,
   reportFrom: null, // { view, selectedProjectId } to return to when leaving the report
@@ -619,14 +618,19 @@ async function dispatchAction(el, action) {
   if (action === "mark-captured-today") {
     const row = el.closest("[data-entry-row]");
     const picSelect = row.querySelector(`[data-pic-for="${el.dataset.id}"]`);
+    const reasonInput = row.querySelector(`[data-late-reason-for="${el.dataset.id}"]`);
     if (!picSelect.value) {
       showToast("Choose who captured this first", true);
       return;
     }
+    const capturedDate = todayStr();
+    const entry = STATE.data.schedule.find((s) => s.id === el.dataset.id);
+    const isLate = entry && capturedDate > entry.plannedDate;
     try {
       await Store.updateScheduleEntry(el.dataset.id, {
-        capturedDate: todayStr(),
+        capturedDate,
         personId: picSelect.value,
+        notes: isLate && reasonInput ? reasonInput.value.trim() : "",
       });
       await afterMutate();
       showToast("Marked as captured");
@@ -640,14 +644,19 @@ async function dispatchAction(el, action) {
     const row = el.closest("[data-entry-row]");
     const dateInput = row.querySelector("input[type=date]");
     const picSelect = row.querySelector(`[data-pic-for="${el.dataset.id}"]`);
+    const reasonInput = row.querySelector(`[data-late-reason-for="${el.dataset.id}"]`);
     if (!picSelect.value) {
       showToast("Choose who captured this first", true);
       return;
     }
+    const capturedDate = dateInput.value || todayStr();
+    const entry = STATE.data.schedule.find((s) => s.id === el.dataset.id);
+    const isLate = entry && capturedDate > entry.plannedDate;
     try {
       await Store.updateScheduleEntry(el.dataset.id, {
-        capturedDate: dateInput.value || todayStr(),
+        capturedDate,
         personId: picSelect.value,
+        notes: isLate && reasonInput ? reasonInput.value.trim() : "",
       });
       await refreshDataOnly();
       render();
@@ -664,6 +673,7 @@ async function dispatchAction(el, action) {
     const row = el.closest("[data-entry-row]");
     const dateInput = row.querySelector(`[data-captured-date-for="${el.dataset.id}"]`);
     const picSelect = row.querySelector(`[data-pic-for="${el.dataset.id}"]`);
+    const reasonInput = row.querySelector(`[data-late-reason-for="${el.dataset.id}"]`);
     if (!picSelect.value) {
       showToast("Choose who captured this first", true);
       return;
@@ -672,10 +682,13 @@ async function dispatchAction(el, action) {
       showToast("Choose a capture date", true);
       return;
     }
+    const entry = STATE.data.schedule.find((s) => s.id === el.dataset.id);
+    const isLate = entry && dateInput.value > entry.plannedDate;
     try {
       await Store.updateScheduleEntry(el.dataset.id, {
         capturedDate: dateInput.value,
         personId: picSelect.value,
+        notes: isLate && reasonInput ? reasonInput.value.trim() : "",
       });
       await refreshDataOnly();
       render();
@@ -719,8 +732,8 @@ async function dispatchAction(el, action) {
   if (action === "open-report") {
     if (!STATE.admin) return;
     STATE.reportFrom = { view: STATE.view, selectedProjectId: STATE.selectedProjectId };
-    STATE.reportProjectId = STATE.selectedProjectId;
-    STATE.reportHomeProjectId = STATE.selectedProjectId === "all" ? null : STATE.selectedProjectId;
+    STATE.reportProjectIds =
+      STATE.selectedProjectId === "all" ? activeProjects().map((p) => p.id) : [STATE.selectedProjectId];
     STATE.reportYear = STATE.calendar.year;
     STATE.reportMonth = STATE.calendar.month;
     STATE.view = "report";
@@ -735,11 +748,9 @@ async function dispatchAction(el, action) {
     render();
     return;
   }
-  if (action === "report-scope-project" || action === "report-scope-all") {
+  if (action === "open-report-project-picker") {
     if (!STATE.admin) return;
-    if (action === "report-scope-all") STATE.reportProjectId = "all";
-    else if (STATE.reportHomeProjectId) STATE.reportProjectId = STATE.reportHomeProjectId;
-    render();
+    openReportProjectPicker();
     return;
   }
   if (action === "report-prev-month" || action === "report-next-month") {
@@ -1044,6 +1055,7 @@ function renderProjectView() {
                 </div>
                 <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
                   ${picSelectHtml(e.id, e.personId, e.projectId)}
+                  <input type="text" data-late-reason-for="${e.id}" placeholder="Reason it's late (optional)" maxlength="200" style="flex:1; min-width:160px; border:1px solid var(--border); border-radius:8px; padding:6px;">
                   <button class="btn btn-small btn-primary" data-action="mark-captured-today" data-id="${e.id}">Mark captured</button>
                 </div>
               </div>`
@@ -1230,38 +1242,85 @@ function donutChartSvg(segments, size = 148, strokeWidth = 16) {
   return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${circles}</svg>`;
 }
 
+function openReportProjectPicker() {
+  const projects = activeProjects();
+  const selected = new Set(STATE.reportProjectIds);
+  const html = `
+    <div class="modal-title">Choose projects to include</div>
+    <div class="modal-sub">Pick which projects' captures to combine into this report.</div>
+    <form id="report-projects-form">
+      <div class="project-assign-grid">
+        ${projects
+          .map(
+            (p) => `
+          <label class="project-assign-box">
+            <input type="checkbox" value="${p.id}" ${selected.has(p.id) ? "checked" : ""}>
+            <span>${escapeHtml(p.name)}</span>
+          </label>`
+          )
+          .join("")}
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn" data-action="close-modal">Cancel</button>
+        <button type="submit" class="btn btn-primary">Apply</button>
+      </div>
+    </form>
+  `;
+  openModal(html);
+
+  document.getElementById("report-projects-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const chosen = Array.from(document.querySelectorAll('#report-projects-form input[type="checkbox"]:checked')).map(
+      (cb) => cb.value
+    );
+    if (!chosen.length) {
+      showToast("Choose at least one project", true);
+      return;
+    }
+    STATE.reportProjectIds = chosen;
+    closeModal();
+    render();
+  });
+}
+
 function renderReportView() {
-  const reportProjectId = STATE.reportProjectId;
-  const project = reportProjectId === "all" ? null : byId(STATE.data.projects, reportProjectId);
-  if (reportProjectId !== "all" && !project) {
-    STATE.view = "picker";
-    STATE.selectedProjectId = null;
-    return renderPicker();
-  }
+  const allActive = activeProjects();
+  let projectIds = STATE.reportProjectIds.filter((id) => byId(STATE.data.projects, id));
+  if (!projectIds.length) projectIds = allActive.map((p) => p.id);
+  STATE.reportProjectIds = projectIds;
+  const projects = projectIds.map((id) => byId(STATE.data.projects, id)).filter(Boolean);
 
   const year = STATE.reportYear;
   const month = STATE.reportMonth;
-  const scoped = filterByProject(STATE.data.schedule, reportProjectId);
+  const scoped = STATE.data.schedule.filter((e) => projectIds.includes(e.projectId));
   const monthEntries = entriesInMonth(scoped, year, month);
   const summary = summarize(monthEntries);
   const health = healthLabel(summary.onTimeRate);
 
-  const people =
-    reportProjectId === "all"
-      ? STATE.data.people.filter((p) => p.active !== false)
-      : STATE.data.people.filter((p) => p.active !== false && parsePersonProjectIds(p.projectIds).includes(reportProjectId));
+  const people = STATE.data.people.filter(
+    (p) => p.active !== false && parsePersonProjectIds(p.projectIds).some((id) => projectIds.includes(id))
+  );
 
   const personRows = people
     .map((p) => ({
       person: p,
       s: summarize(monthEntries.filter((e) => e.personId === p.id)),
       projectNames: parsePersonProjectIds(p.projectIds)
+        .filter((id) => projectIds.includes(id))
         .map((id) => byId(STATE.data.projects, id)?.name)
         .filter(Boolean),
     }))
     .filter((row) => row.s.due > 0)
     .sort((a, b) => (a.s.onTimeRate ?? 1) - (b.s.onTimeRate ?? 1));
-  const showProjectColumn = reportProjectId === "all";
+  const showProjectColumn = projects.length > 1;
+
+  const isEverything = allActive.length > 0 && allActive.every((p) => projectIds.includes(p.id));
+  const scopeLabel =
+    projects.length === 1
+      ? escapeHtml(projects[0].name)
+      : isEverything
+        ? "All projects (overall)"
+        : `Selected projects: ${projects.map((p) => escapeHtml(p.name)).join(", ")}`;
 
   const donut = donutChartSvg([
     { label: "On time", value: summary["on-time"], color: "#1e7a46" },
@@ -1276,14 +1335,7 @@ function renderReportView() {
         <strong>${monthLabel(year, month)}</strong>
         <button type="button" class="btn btn-small" data-action="report-next-month">&rarr;</button>
       </div>
-      ${
-        STATE.reportHomeProjectId
-          ? `<div class="scope-toggle">
-              <button type="button" class="scope-toggle-btn ${reportProjectId !== "all" ? "active" : ""}" data-action="report-scope-project">This project</button>
-              <button type="button" class="scope-toggle-btn ${reportProjectId === "all" ? "active" : ""}" data-action="report-scope-all">Overall (all projects)</button>
-            </div>`
-          : ""
-      }
+      <button type="button" class="btn btn-small" data-action="open-report-project-picker">Choose projects (${projectIds.length} of ${allActive.length})</button>
       <button type="button" class="btn btn-primary btn-small" data-action="print-report">Print / Save as PDF</button>
     </div>`;
 
@@ -1317,7 +1369,7 @@ function renderReportView() {
       <div class="report-header">
         <div class="report-header-title">
           <h1>Monthly capture report</h1>
-          <p>${reportProjectId === "all" ? "All projects (overall)" : escapeHtml(project.name)} · ${monthLabel(year, month)}</p>
+          <p>${scopeLabel} · ${monthLabel(year, month)}</p>
         </div>
         <div class="report-health-tag ${health.cls}"><span class="health-badge">${health.text}</span></div>
       </div>
@@ -1367,6 +1419,8 @@ function openDayModal(dateStr) {
     .map((e) => {
       const status = captureStatus(e);
       const statusChip = `<span class="chip chip-${status}">${STATUS_LABEL[status]}</span>`;
+      const reasonNote =
+        status === "late" && e.notes ? `<div class="list-row-sub late-reason-note">“${escapeHtml(e.notes)}”</div>` : "";
       let actionHtml = "";
       if (e.capturedDate) {
         if (STATE.admin) {
@@ -1377,6 +1431,7 @@ function openDayModal(dateStr) {
           actionHtml = `
             ${picSelectHtml(e.id, e.personId, e.projectId)}
             <input type="date" data-captured-date-for="${e.id}" value="${e.capturedDate}" style="border:1px solid var(--border); border-radius:8px; padding:6px;">
+            <input type="text" data-late-reason-for="${e.id}" value="${escapeHtml(e.notes || "")}" placeholder="Reason it's late (optional)" maxlength="200" style="flex:1; min-width:160px; border:1px solid var(--border); border-radius:8px; padding:6px;" ${e.capturedDate > e.plannedDate ? "" : "hidden"}>
             <button class="btn btn-small btn-primary" data-action="save-capture-edit" data-id="${e.id}" data-reopen-date="${dateStr}">Save</button>
             <button class="btn btn-small" data-action="undo-capture" data-id="${e.id}" data-reopen-date="${dateStr}">Undo</button>`;
         } else {
@@ -1387,7 +1442,8 @@ function openDayModal(dateStr) {
       } else {
         actionHtml = `
           ${picSelectHtml(e.id, e.personId, e.projectId)}
-          <input type="date" value="${dateStr}" style="border:1px solid var(--border); border-radius:8px; padding:6px;">
+          <input type="date" data-mark-date-for="${e.id}" value="${dateStr}" style="border:1px solid var(--border); border-radius:8px; padding:6px;">
+          <input type="text" data-late-reason-for="${e.id}" placeholder="Reason it's late (optional)" maxlength="200" style="flex:1; min-width:160px; border:1px solid var(--border); border-radius:8px; padding:6px;" ${dateStr > e.plannedDate ? "" : "hidden"}>
           <button class="btn btn-small btn-primary" data-action="mark-captured-on" data-id="${e.id}" data-reopen-date="${dateStr}">Mark captured</button>`;
       }
       return `
@@ -1395,6 +1451,7 @@ function openDayModal(dateStr) {
           <div class="list-row-main">
             <div class="list-row-title">${isAll ? escapeHtml(projectName(e.projectId)) : escapeHtml(personName(e.personId))}</div>
             <div class="list-row-sub">${e.capturedDate && isAll ? escapeHtml(personName(e.personId)) + " · " : ""}${statusChip}</div>
+            ${reasonNote}
           </div>
           <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
             ${actionHtml}
@@ -1438,6 +1495,20 @@ function openDayModal(dateStr) {
     </div>
   `;
   openModal(html);
+
+  // Show the "reason it's late" field only once the chosen date is
+  // actually after the entry's planned date — no point asking for an
+  // excuse for an on-time capture.
+  document.querySelectorAll("[data-mark-date-for], [data-captured-date-for]").forEach((dateInput) => {
+    const entryId = dateInput.dataset.markDateFor || dateInput.dataset.capturedDateFor;
+    const reasonInput = document.querySelector(`[data-late-reason-for="${entryId}"]`);
+    const entry = STATE.data.schedule.find((s) => s.id === entryId);
+    if (!reasonInput || !entry) return;
+    const sync = () => {
+      reasonInput.hidden = !(dateInput.value && dateInput.value > entry.plannedDate);
+    };
+    dateInput.addEventListener("change", sync);
+  });
 
   if (STATE.admin && isAll) {
     // In the combined view, the person list can't be scoped up front —
@@ -1546,7 +1617,10 @@ function renderPersonProfile() {
             <td>${escapeHtml(projectName(e.projectId))}</td>
             <td>${formatDateHuman(e.plannedDate)}</td>
             <td>${e.capturedDate ? formatDateHuman(e.capturedDate) : "—"}</td>
-            <td><span class="chip chip-${status}">${STATUS_LABEL[status]}</span></td>
+            <td>
+              <span class="chip chip-${status}">${STATUS_LABEL[status]}</span>
+              ${status === "late" && e.notes ? `<div class="list-row-sub late-reason-note">“${escapeHtml(e.notes)}”</div>` : ""}
+            </td>
             ${STATE.admin ? `<td><button class="btn btn-small" data-action="edit-entry-dates" data-id="${e.id}">Edit</button></td>` : ""}
           </tr>`;
         })
@@ -1619,6 +1693,10 @@ function openEntryDateEditModal(entry) {
         <label for="ed-captured">Actual capture date</label>
         <input type="date" id="ed-captured" value="${entry.capturedDate || ""}">
       </div>
+      <div class="form-row" id="ed-late-reason-row" ${entry.capturedDate && entry.capturedDate > entry.plannedDate ? "" : "hidden"}>
+        <label for="ed-late-reason">Reason it was late</label>
+        <input type="text" id="ed-late-reason" value="${escapeHtml(entry.notes || "")}" placeholder="Optional — e.g. site access delayed" maxlength="200">
+      </div>
       <span class="hint">Captured on or before the planned date counts as on time; after it counts as late.</span>
       ${
         isAutoScheduled
@@ -1635,21 +1713,36 @@ function openEntryDateEditModal(entry) {
 
   const toggle = document.getElementById("ed-captured-toggle");
   const capturedRow = document.getElementById("ed-captured-row");
+  const plannedInput = document.getElementById("ed-planned");
+  const capturedInput = document.getElementById("ed-captured");
+  const reasonRow = document.getElementById("ed-late-reason-row");
+  const syncLateReason = () => {
+    reasonRow.hidden = !(toggle.checked && capturedInput.value && plannedInput.value && capturedInput.value > plannedInput.value);
+  };
   toggle.addEventListener("change", () => {
     capturedRow.hidden = !toggle.checked;
+    syncLateReason();
   });
+  plannedInput.addEventListener("change", syncLateReason);
+  capturedInput.addEventListener("change", syncLateReason);
 
   document.getElementById("entry-date-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     if (STATE.busy) return;
-    const planned = document.getElementById("ed-planned").value;
+    const planned = plannedInput.value;
     if (!planned) return;
-    const capturedOn = toggle.checked ? document.getElementById("ed-captured").value || todayStr() : null;
+    const capturedOn = toggle.checked ? capturedInput.value || todayStr() : null;
+    const isLate = capturedOn && capturedOn > planned;
+    const reasonInput = document.getElementById("ed-late-reason");
     STATE.busy = true;
     const submitBtn = e.target.querySelector('button[type="submit"]');
     if (submitBtn) submitBtn.disabled = true;
     try {
-      await Store.updateScheduleEntry(entry.id, { plannedDate: planned, capturedDate: capturedOn });
+      await Store.updateScheduleEntry(entry.id, {
+        plannedDate: planned,
+        capturedDate: capturedOn,
+        notes: isLate ? reasonInput.value.trim() : "",
+      });
       closeModal();
       await afterMutate();
       showToast("Capture updated");

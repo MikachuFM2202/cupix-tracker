@@ -369,6 +369,11 @@ a {
   color: var(--text-muted);
 }
 
+.late-reason-note {
+  font-style: italic;
+  margin-top: 2px;
+}
+
 .empty-state {
   padding: 32px 16px;
   text-align: center;
