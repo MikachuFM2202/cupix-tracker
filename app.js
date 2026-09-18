@@ -113,22 +113,37 @@ function saveShowHolidays() {
  * record (on-time rate + capture count) so whoever is picking a
  * name can see that person's frequency and punctuality right there.
  */
-function personStatsOptionsHtml(selectedId) {
-  return STATE.data.people
-    .filter((p) => p.active !== false)
+/**
+ * Person options for a check-in / assignment <select>. When projectId
+ * is a real project (not "all"/omitted), the list — and each
+ * person's shown track record — is scoped to just that project's
+ * team and that project's captures, so one project's staff never
+ * shows up while checking in on another.
+ */
+function personStatsOptionsHtml(selectedId, projectId) {
+  const isScoped = projectId && projectId !== "all";
+  const pool = STATE.data.people.filter((p) => {
+    if (p.active === false) return false;
+    if (!isScoped) return true;
+    return parsePersonProjectIds(p.projectIds).includes(projectId);
+  });
+  return pool
     .map((p) => {
-      const s = summarize(STATE.data.schedule.filter((e) => e.personId === p.id));
+      const relevantEntries = isScoped
+        ? STATE.data.schedule.filter((e) => e.personId === p.id && e.projectId === projectId)
+        : STATE.data.schedule.filter((e) => e.personId === p.id);
+      const s = summarize(relevantEntries);
       const stats = s.due ? ` — ${formatPercent(s.onTimeRate)} on-time (${s.due} captures)` : " — no captures yet";
       return `<option value="${p.id}" ${p.id === selectedId ? "selected" : ""}>${escapeHtml(p.name + stats)}</option>`;
     })
     .join("");
 }
 
-function picSelectHtml(entryId, selectedId) {
+function picSelectHtml(entryId, selectedId, projectId) {
   return `
     <select data-pic-for="${entryId}" style="min-width:220px; border:1px solid var(--border); border-radius:8px; padding:6px;">
       <option value="">Who captured this?</option>
-      ${personStatsOptionsHtml(selectedId)}
+      ${personStatsOptionsHtml(selectedId, projectId)}
     </select>`;
 }
 
@@ -139,6 +154,16 @@ function initials(name) {
     .slice(0, 2)
     .map((w) => w[0].toUpperCase())
     .join("");
+}
+
+const AVATAR_PALETTE = ["avatar-1", "avatar-2", "avatar-3", "avatar-4", "avatar-5", "avatar-6"];
+
+/** Deterministic avatar color per person, so the same person always
+ * gets the same color and different people are visually distinct. */
+function avatarColorClass(id) {
+  let hash = 0;
+  for (let i = 0; i < (id || "").length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+  return AVATAR_PALETTE[hash % AVATAR_PALETTE.length];
 }
 
 function formatDateHuman(dateStr) {
@@ -752,8 +777,9 @@ function renderPicker() {
     .map((p) => {
       const s = summarize(filterByProject(STATE.data.schedule, p.id));
       const locked = !isProjectUnlocked(p.id);
+      const statusAccent = s.missing > 0 ? "accent-red" : "accent-green";
       return `
-        <button type="button" class="project-card" data-action="select-project" data-id="${p.id}">
+        <button type="button" class="project-card ${statusAccent}" data-action="select-project" data-id="${p.id}">
           <div class="project-card-name">${escapeHtml(p.name)}${locked ? ` <span class="lock-badge">Passcode required</span>` : ""}</div>
           <div class="project-card-meta">${frequencyDetailLabel(p)} · ${escapeHtml(personName(p.defaultAssigneeId))}</div>
           <div class="project-card-stats">
@@ -840,6 +866,29 @@ function renderProjectView() {
     })
     .join("");
 
+  const team = isAll
+    ? []
+    : STATE.data.people.filter((p) => p.active !== false && parsePersonProjectIds(p.projectIds).includes(project.id));
+  const teamStrip = !isAll
+    ? `
+    <div class="team-strip">
+      <span class="team-strip-label">Team</span>
+      ${
+        team.length
+          ? team
+              .map(
+                (p) => `
+              <span class="team-chip">
+                <span class="avatar avatar-small ${avatarColorClass(p.id)}">${initials(p.name)}</span>
+                ${escapeHtml(p.name)}
+              </span>`
+              )
+              .join("")
+          : `<span class="team-strip-empty">No one assigned yet — add people to this project from Manage.</span>`
+      }
+    </div>`
+    : "";
+
   return `
     <div class="view-header">
       <div>
@@ -848,6 +897,8 @@ function renderProjectView() {
       </div>
       ${scopeToggle}
     </div>
+
+    ${teamStrip}
 
     <div class="card-grid">
       <div class="card health-card ${monthHealth.cls}">
@@ -865,17 +916,17 @@ function renderProjectView() {
     </div>
 
     <div class="card-grid">
-      <div class="card stat-card">
+      <div class="card stat-card accent-blue">
         <div class="stat-label">Planned this month</div>
         <div class="stat-value">${monthEntries.length}</div>
         <div class="stat-sub">${summary.upcoming} still upcoming</div>
       </div>
-      <div class="card stat-card">
+      <div class="card stat-card accent-green">
         <div class="stat-label">Captured on time</div>
         <div class="stat-value">${summary["on-time"]}</div>
         <div class="stat-sub">${summary.late} captured late</div>
       </div>
-      <div class="card stat-card">
+      <div class="card stat-card accent-red">
         <div class="stat-label">Missing</div>
         <div class="stat-value">${summary.missing}</div>
         <div class="stat-sub">out of ${summary.due} due so far</div>
@@ -896,7 +947,7 @@ function renderProjectView() {
                   <div class="list-row-sub">${isAll ? `Planned ${formatDateHuman(e.plannedDate)} · ` : ""}${daysOverdue(e.plannedDate)}d overdue</div>
                 </div>
                 <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-                  ${picSelectHtml(e.id, e.personId)}
+                  ${picSelectHtml(e.id, e.personId, e.projectId)}
                   <button class="btn btn-small btn-primary" data-action="mark-captured-today" data-id="${e.id}">Mark captured</button>
                 </div>
               </div>`
@@ -1077,7 +1128,7 @@ function openDayModal(dateStr) {
           // undo and re-enter it. This edits the same schedule entry,
           // so it immediately affects that person's on-time stats.
           actionHtml = `
-            ${picSelectHtml(e.id, e.personId)}
+            ${picSelectHtml(e.id, e.personId, e.projectId)}
             <input type="date" data-captured-date-for="${e.id}" value="${e.capturedDate}" style="border:1px solid var(--border); border-radius:8px; padding:6px;">
             <button class="btn btn-small btn-primary" data-action="save-capture-edit" data-id="${e.id}" data-reopen-date="${dateStr}">Save</button>
             <button class="btn btn-small" data-action="undo-capture" data-id="${e.id}" data-reopen-date="${dateStr}">Undo</button>`;
@@ -1088,7 +1139,7 @@ function openDayModal(dateStr) {
         }
       } else {
         actionHtml = `
-          ${picSelectHtml(e.id, e.personId)}
+          ${picSelectHtml(e.id, e.personId, e.projectId)}
           <input type="date" value="${dateStr}" style="border:1px solid var(--border); border-radius:8px; padding:6px;">
           <button class="btn btn-small btn-primary" data-action="mark-captured-on" data-id="${e.id}" data-reopen-date="${dateStr}">Mark captured</button>`;
       }
@@ -1121,7 +1172,7 @@ function openDayModal(dateStr) {
         }
         <select id="add-entry-person" style="flex:1; min-width:220px; border:1px solid var(--border); border-radius:8px; padding:8px;">
           <option value="">Unassigned</option>
-          ${personStatsOptionsHtml(null)}
+          ${personStatsOptionsHtml(null, isAll ? null : STATE.selectedProjectId)}
         </select>
         <button class="btn btn-primary" data-action="add-entry-for-day" data-date="${dateStr}">Add</button>
       </div>
@@ -1140,6 +1191,19 @@ function openDayModal(dateStr) {
     </div>
   `;
   openModal(html);
+
+  if (STATE.admin && isAll) {
+    // In the combined view, the person list can't be scoped up front —
+    // there's no project yet. Re-filter it to that project's team as
+    // soon as one is picked, so staff still stay isolated per project.
+    const projectSel = document.getElementById("add-entry-project");
+    const personSel = document.getElementById("add-entry-person");
+    if (projectSel && personSel) {
+      projectSel.addEventListener("change", () => {
+        personSel.innerHTML = `<option value="">Unassigned</option>${personStatsOptionsHtml(null, projectSel.value || null)}`;
+      });
+    }
+  }
 }
 
 /* ================= Manage (admin-only: projects + people) ================= */
@@ -1181,14 +1245,17 @@ function peopleCards() {
     .map((person) => {
       const s = summarize(STATE.data.schedule.filter((e) => e.personId === person.id));
       const rate = s.onTimeRate ?? 0;
+      const personProjectNames = parsePersonProjectIds(person.projectIds)
+        .map((id) => byId(STATE.data.projects, id)?.name)
+        .filter(Boolean);
       return `
         <div class="card person-card">
           <div class="person-header">
             <div style="display:flex; align-items:center; gap:10px;">
-              <div class="avatar">${initials(person.name)}</div>
+              <div class="avatar ${avatarColorClass(person.id)}">${initials(person.name)}</div>
               <div>
                 <div style="font-weight:600;">${escapeHtml(person.name)}</div>
-                ${person.email ? `<div class="list-row-sub">${escapeHtml(person.email)}</div>` : ""}
+                <div class="list-row-sub">${personProjectNames.length ? escapeHtml(personProjectNames.join(", ")) : "No project assigned"}${person.email ? " · " + escapeHtml(person.email) : ""}</div>
               </div>
             </div>
             <div class="actions">
@@ -1372,6 +1439,8 @@ function openProjectModal(project) {
 
 function openPersonModal(person) {
   const isEdit = !!person;
+  const assignedIds = new Set(parsePersonProjectIds(person?.projectIds));
+  const projects = activeProjects();
   const html = `
     <div class="modal-title">${isEdit ? "Edit person" : "Add person"}</div>
     <form id="person-form">
@@ -1383,6 +1452,25 @@ function openPersonModal(person) {
         <label for="pe-email">Email <span class="hint">(optional)</span></label>
         <input type="email" id="pe-email" value="${escapeHtml(person?.email || "")}">
       </div>
+      <div class="form-row">
+        <label>Projects</label>
+        ${
+          projects.length
+            ? `<div class="project-assign-grid">
+                ${projects
+                  .map(
+                    (p) => `
+                  <label class="project-assign-box">
+                    <input type="checkbox" value="${p.id}" ${assignedIds.has(p.id) ? "checked" : ""}>
+                    <span>${escapeHtml(p.name)}</span>
+                  </label>`
+                  )
+                  .join("")}
+              </div>
+              <span class="hint">Which project(s) this person checks in for — they'll only appear in that project's picker.</span>`
+            : `<span class="hint">No projects yet — add one first, then come back to assign this person.</span>`
+        }
+      </div>
       <div class="form-actions">
         <button type="button" class="btn" data-action="close-modal">Cancel</button>
         <button type="submit" class="btn btn-primary">${isEdit ? "Save changes" : "Add person"}</button>
@@ -1390,12 +1478,17 @@ function openPersonModal(person) {
     </form>
   `;
   openModal(html);
+  const projectChecks = document.querySelectorAll("#person-form .project-assign-box input[type=checkbox]");
   document.getElementById("person-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     if (STATE.busy) return;
+    const chosenProjectIds = Array.from(projectChecks)
+      .filter((cb) => cb.checked)
+      .map((cb) => cb.value);
     const fields = {
       name: document.getElementById("pe-name").value.trim(),
       email: document.getElementById("pe-email").value.trim(),
+      projectIds: chosenProjectIds.join(","),
       active: true,
     };
     if (!fields.name) return;

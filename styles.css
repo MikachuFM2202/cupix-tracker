@@ -83,7 +83,7 @@ a {
   gap: 24px;
   padding: 16px 28px;
   background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 2px solid var(--accent);
   flex-wrap: wrap;
 }
 
@@ -235,7 +235,12 @@ a {
 
 .stat-card {
   padding: 18px 20px;
+  border-left: 3px solid var(--border);
 }
+
+.stat-card.accent-blue { border-left-color: var(--blue-text); }
+.stat-card.accent-green { border-left-color: var(--green-text); }
+.stat-card.accent-red { border-left-color: var(--red-text); }
 
 .stat-label {
   font-size: 13px;
@@ -383,6 +388,7 @@ a {
   text-align: left;
   background: var(--surface);
   border: 1px solid var(--border);
+  border-top: 3px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   padding: 20px;
@@ -392,6 +398,9 @@ a {
   gap: 10px;
   transition: border-color 0.15s, transform 0.1s;
 }
+
+.project-card.accent-green { border-top-color: var(--green-text); }
+.project-card.accent-red { border-top-color: var(--red-text); }
 
 .project-card:hover {
   border-color: var(--accent);
@@ -691,6 +700,58 @@ tbody tr:hover {
   justify-content: center;
   font-weight: 700;
   font-size: 14px;
+  flex-shrink: 0;
+}
+
+.avatar-small {
+  width: 26px;
+  height: 26px;
+  font-size: 11px;
+}
+
+/* A small, deliberate palette so different people read as different
+   people at a glance, assigned deterministically per person. */
+.avatar.avatar-1 { background: #eaedff; color: #4c5fd5; }
+.avatar.avatar-2 { background: #e3f5ea; color: #1e7a46; }
+.avatar.avatar-3 { background: #fff3dc; color: #92600a; }
+.avatar.avatar-4 { background: #fbe7e6; color: #b3261e; }
+.avatar.avatar-5 { background: #eaf1fd; color: #2b5fa8; }
+.avatar.avatar-6 { background: #f1ecfb; color: #6b3fa0; }
+
+/* ---------- team strip (project dashboard) ---------- */
+
+.team-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.team-strip-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-right: 4px;
+}
+
+.team-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 12px 4px 4px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.team-strip-empty {
+  font-size: 13px;
+  color: var(--text-muted);
 }
 
 .progress-track {
@@ -816,6 +877,31 @@ tbody tr:hover {
 }
 
 .weekday-box:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.project-assign-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 6px;
+}
+
+.project-assign-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.project-assign-box:has(input:checked) {
   border-color: var(--accent);
   background: var(--accent-soft);
   color: var(--accent);

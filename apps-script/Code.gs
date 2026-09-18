@@ -30,7 +30,7 @@ const SHEETS = {
 
 const HEADERS = {
   Projects: ["id", "name", "active", "defaultAssigneeId", "frequency", "anchorDate", "createdDate", "captureDays"],
-  People: ["id", "name", "email", "active"],
+  People: ["id", "name", "email", "active", "projectIds"],
   Schedule: ["id", "projectId", "personId", "plannedDate", "capturedDate", "notes"],
 };
 

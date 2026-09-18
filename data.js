@@ -128,6 +128,20 @@ function captureDaysLabel(captureDays) {
     .join(", ");
 }
 
+/**
+ * A person's projectIds is stored as a comma-separated string of
+ * project ids, e.g. "proj_abc,proj_def" — the projects that person
+ * is on the team for. Empty/missing means "not assigned to any
+ * project yet", not "assigned to all of them".
+ */
+function parsePersonProjectIds(projectIds) {
+  if (!projectIds) return [];
+  return String(projectIds)
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 /** Returns { date, name } if dateStr is a configured SG public holiday, else null. */
 function publicHoliday(dateStr) {
   const list = typeof SG_PUBLIC_HOLIDAYS !== "undefined" ? SG_PUBLIC_HOLIDAYS : [];
