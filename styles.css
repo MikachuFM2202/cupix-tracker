@@ -745,8 +745,15 @@ tbody tr:hover {
   border: 1px solid var(--border);
   border-radius: 999px;
   padding: 4px 12px 4px 4px;
+  font: inherit;
   font-size: 13px;
   font-weight: 500;
+  color: inherit;
+  cursor: pointer;
+}
+
+.team-chip:hover {
+  border-color: var(--accent);
 }
 
 .team-strip-empty {

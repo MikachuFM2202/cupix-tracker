@@ -12,8 +12,10 @@
  */
 
 const STATE = {
-  view: "picker", // "picker" | "project" | "manage"
+  view: "picker", // "picker" | "project" | "manage" | "person"
   selectedProjectId: null, // a real project id, or "all" (admin combined view)
+  selectedPersonId: null, // set while STATE.view === "person"
+  personProfileFrom: null, // { view, selectedProjectId } to return to when leaving a person's profile
   lastSingleProjectId: null, // remembered so the "This project" toggle has somewhere to go back to
   admin: false,
   unlockedProjects: new Set(), // project ids this browser has already entered the passcode for
@@ -709,6 +711,31 @@ async function dispatchAction(el, action) {
     return;
   }
 
+  if (action === "view-person") {
+    const id = el.dataset.id;
+    if (!byId(STATE.data.people, id)) return;
+    STATE.personProfileFrom = { view: STATE.view, selectedProjectId: STATE.selectedProjectId };
+    STATE.selectedPersonId = id;
+    STATE.view = "person";
+    render();
+    return;
+  }
+  if (action === "back-from-person") {
+    const from = STATE.personProfileFrom;
+    STATE.selectedPersonId = null;
+    STATE.personProfileFrom = null;
+    STATE.view = from ? from.view : "picker";
+    STATE.selectedProjectId = from ? from.selectedProjectId : null;
+    render();
+    return;
+  }
+  if (action === "edit-entry-dates") {
+    if (!STATE.admin) return;
+    const entry = STATE.data.schedule.find((e) => e.id === el.dataset.id);
+    if (entry) openEntryDateEditModal(entry);
+    return;
+  }
+
   if (action === "add-entry-for-day") {
     if (!STATE.admin) return;
     const date = el.dataset.date;
@@ -738,11 +765,17 @@ async function dispatchAction(el, action) {
 function render() {
   if (STATE.view === "project" && !STATE.selectedProjectId) STATE.view = "picker";
   if (STATE.view === "manage" && !STATE.admin) STATE.view = "picker";
+  if (STATE.view === "person" && !byId(STATE.data.people, STATE.selectedPersonId)) {
+    STATE.view = "picker";
+    STATE.selectedPersonId = null;
+    STATE.personProfileFrom = null;
+  }
 
   const root = document.getElementById("view-root");
   if (STATE.view === "picker") root.innerHTML = renderPicker();
   else if (STATE.view === "project") root.innerHTML = renderProjectView();
   else if (STATE.view === "manage") root.innerHTML = renderManage();
+  else if (STATE.view === "person") root.innerHTML = renderPersonProfile();
 
   renderTopbarActions();
   wireViewInputs();
@@ -752,7 +785,9 @@ function renderTopbarActions() {
   const root = document.getElementById("topbar-actions");
   if (!root) return;
   const parts = [];
-  if (STATE.view !== "picker") {
+  if (STATE.view === "person") {
+    parts.push(`<button class="btn btn-small" data-action="back-from-person">&larr; Back</button>`);
+  } else if (STATE.view !== "picker") {
     parts.push(`<button class="btn btn-small" data-action="back-to-picker">&larr; Choose project</button>`);
   }
   if (STATE.admin) {
@@ -886,10 +921,10 @@ function renderProjectView() {
           ? team
               .map(
                 (p) => `
-              <span class="team-chip">
+              <button type="button" class="team-chip" data-action="view-person" data-id="${p.id}">
                 <span class="avatar avatar-small ${avatarColorClass(p.id)}">${initials(p.name)}</span>
                 ${escapeHtml(p.name)}
-              </span>`
+              </button>`
               )
               .join("")
           : `<span class="team-strip-empty">No one assigned yet — add people to this project from Manage.</span>`
@@ -1259,14 +1294,15 @@ function peopleCards() {
       return `
         <div class="card person-card">
           <div class="person-header">
-            <div style="display:flex; align-items:center; gap:10px;">
+            <button type="button" class="person-header-link" data-action="view-person" data-id="${person.id}" style="display:flex; align-items:center; gap:10px; background:none; border:none; padding:0; cursor:pointer; text-align:left;">
               <div class="avatar ${avatarColorClass(person.id)}">${initials(person.name)}</div>
               <div>
-                <div style="font-weight:600;">${escapeHtml(person.name)}</div>
+                <div style="font-weight:600; color:var(--text);">${escapeHtml(person.name)}</div>
                 <div class="list-row-sub">${personProjectNames.length ? escapeHtml(personProjectNames.join(", ")) : "No project assigned"}${person.email ? " · " + escapeHtml(person.email) : ""}</div>
               </div>
-            </div>
+            </button>
             <div class="actions">
+              <button class="btn btn-small" data-action="view-person" data-id="${person.id}">Profile</button>
               <button class="btn btn-small" data-action="edit-person" data-id="${person.id}">Edit</button>
               <button class="btn btn-small btn-danger" data-action="delete-person" data-id="${person.id}">Delete</button>
             </div>
@@ -1282,6 +1318,137 @@ function peopleCards() {
         </div>`;
     })
     .join("");
+}
+
+function renderPersonProfile() {
+  const person = byId(STATE.data.people, STATE.selectedPersonId);
+  if (!person) return renderPicker();
+
+  const entries = sortedByPlannedDate(
+    STATE.data.schedule.filter((e) => e.personId === person.id),
+    -1
+  );
+  const s = summarize(entries);
+  const projectNames = parsePersonProjectIds(person.projectIds)
+    .map((id) => byId(STATE.data.projects, id)?.name)
+    .filter(Boolean);
+
+  const rows = entries.length
+    ? entries
+        .map((e) => {
+          const status = captureStatus(e);
+          return `
+          <tr>
+            <td>${escapeHtml(projectName(e.projectId))}</td>
+            <td>${formatDateHuman(e.plannedDate)}</td>
+            <td>${e.capturedDate ? formatDateHuman(e.capturedDate) : "—"}</td>
+            <td><span class="chip chip-${status}">${STATUS_LABEL[status]}</span></td>
+            ${STATE.admin ? `<td><button class="btn btn-small" data-action="edit-entry-dates" data-id="${e.id}">Edit</button></td>` : ""}
+          </tr>`;
+        })
+        .join("")
+    : `<tr><td colspan="${STATE.admin ? 5 : 4}"><div class="empty-state">No captures logged yet</div></td></tr>`;
+
+  return `
+    <div class="view-header">
+      <div style="display:flex; align-items:center; gap:14px;">
+        <div class="avatar ${avatarColorClass(person.id)}" style="width:48px; height:48px; font-size:18px;">${initials(person.name)}</div>
+        <div>
+          <h1>${escapeHtml(person.name)}</h1>
+          <p>${projectNames.length ? escapeHtml(projectNames.join(", ")) : "No project assigned"}${person.email ? " · " + escapeHtml(person.email) : ""}</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card-grid">
+      <div class="card stat-card accent-blue">
+        <div class="stat-label">Captures due</div>
+        <div class="stat-value">${s.due}</div>
+        <div class="stat-sub">${s.upcoming} still upcoming</div>
+      </div>
+      <div class="card stat-card accent-green">
+        <div class="stat-label">On time</div>
+        <div class="stat-value">${s["on-time"]}</div>
+        <div class="stat-sub">${formatPercent(s.onTimeRate)} on-time rate</div>
+      </div>
+      <div class="card stat-card accent-red">
+        <div class="stat-label">Missed</div>
+        <div class="stat-value">${s.missing}</div>
+        <div class="stat-sub">${s.late} more captured late</div>
+      </div>
+    </div>
+
+    <div class="card card-pad">
+      <div class="section-title">Capture history</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Project</th>
+            <th>Planned date</th>
+            <th>Captured date</th>
+            <th>Status</th>
+            ${STATE.admin ? "<th></th>" : ""}
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function openEntryDateEditModal(entry) {
+  const html = `
+    <div class="modal-title">Edit capture dates</div>
+    <div class="modal-sub">${escapeHtml(projectName(entry.projectId))} — ${escapeHtml(personName(entry.personId))}</div>
+    <form id="entry-date-form">
+      <div class="form-row">
+        <label for="ed-planned">Proper (planned) capture date</label>
+        <input type="date" id="ed-planned" required value="${entry.plannedDate}">
+      </div>
+      <div class="form-row checkbox-row">
+        <input type="checkbox" id="ed-captured-toggle" ${entry.capturedDate ? "checked" : ""}>
+        <label for="ed-captured-toggle">Captured</label>
+      </div>
+      <div class="form-row" id="ed-captured-row" ${entry.capturedDate ? "" : "hidden"}>
+        <label for="ed-captured">Actual capture date</label>
+        <input type="date" id="ed-captured" value="${entry.capturedDate || ""}">
+      </div>
+      <span class="hint">Captured on or before the planned date counts as on time; after it counts as late.</span>
+      <div class="form-actions">
+        <button type="button" class="btn" data-action="close-modal">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  `;
+  openModal(html);
+
+  const toggle = document.getElementById("ed-captured-toggle");
+  const capturedRow = document.getElementById("ed-captured-row");
+  toggle.addEventListener("change", () => {
+    capturedRow.hidden = !toggle.checked;
+  });
+
+  document.getElementById("entry-date-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (STATE.busy) return;
+    const planned = document.getElementById("ed-planned").value;
+    if (!planned) return;
+    const capturedOn = toggle.checked ? document.getElementById("ed-captured").value || todayStr() : null;
+    STATE.busy = true;
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      await Store.updateScheduleEntry(entry.id, { plannedDate: planned, capturedDate: capturedOn });
+      closeModal();
+      await afterMutate();
+      showToast("Capture updated");
+    } catch (err) {
+      showToast(err.message || "Could not update", true);
+    } finally {
+      STATE.busy = false;
+      if (submitBtn && submitBtn.isConnected) submitBtn.disabled = false;
+    }
+  });
 }
 
 function renderManage() {
