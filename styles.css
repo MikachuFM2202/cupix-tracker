@@ -979,3 +979,174 @@ tbody tr:hover {
     min-height: 72px;
   }
 }
+
+/* ---------- monthly report ---------- */
+
+.report-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.report-month-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+
+/* Screen preview is sized/shaped like a real A4 sheet (210mm wide) so
+   what you see is close to what prints; print rules below strip the
+   preview chrome away and let @page handle real pagination. */
+.report-page {
+  width: 210mm;
+  max-width: 100%;
+  min-height: 297mm;
+  margin: 0 auto;
+  padding: 14mm;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 16px rgba(20, 24, 40, 0.06);
+  box-sizing: border-box;
+}
+
+.report-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 14px;
+  border-bottom: 2px solid var(--accent);
+  margin-bottom: 20px;
+}
+
+.report-header p {
+  color: var(--text-muted);
+  font-size: 13.5px;
+}
+
+.report-summary {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  padding: 16px 0 22px 0;
+  flex-wrap: wrap;
+}
+
+.report-donut-wrap {
+  position: relative;
+  width: 132px;
+  height: 132px;
+  flex-shrink: 0;
+}
+
+.report-donut-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.report-donut-value {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.report-donut-label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+}
+
+.report-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13.5px;
+}
+
+.report-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.report-legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.report-legend-total {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.report-table th, .report-table td {
+  font-size: 12.5px;
+  padding: 7px 8px;
+}
+
+.report-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.report-bar-track {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-alt);
+  overflow: hidden;
+  min-width: 60px;
+}
+
+.report-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+}
+
+.report-footer {
+  margin-top: 24px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+@media print {
+  .topbar, #mode-banner, .no-print {
+    display: none !important;
+  }
+  body {
+    background: white;
+  }
+  .view-root {
+    padding: 0;
+    max-width: none;
+    margin: 0;
+  }
+  .report-page {
+    width: auto;
+    min-height: auto;
+    margin: 0;
+    padding: 0;
+    border: none;
+    box-shadow: none;
+  }
+}
+
+@page {
+  size: A4;
+  margin: 14mm;
+}

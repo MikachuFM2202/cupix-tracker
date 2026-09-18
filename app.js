@@ -12,10 +12,15 @@
  */
 
 const STATE = {
-  view: "picker", // "picker" | "project" | "manage" | "person"
+  view: "picker", // "picker" | "project" | "manage" | "person" | "report"
   selectedProjectId: null, // a real project id, or "all" (admin combined view)
   selectedPersonId: null, // set while STATE.view === "person"
   personProfileFrom: null, // { view, selectedProjectId } to return to when leaving a person's profile
+  reportProjectId: null, // a real project id, or "all" — the report's current scope
+  reportHomeProjectId: null, // the specific project the report was opened for, or null if opened from "All projects" (lets the in-report toggle switch back to it)
+  reportYear: null,
+  reportMonth: null,
+  reportFrom: null, // { view, selectedProjectId } to return to when leaving the report
   lastSingleProjectId: null, // remembered so the "This project" toggle has somewhere to go back to
   admin: false,
   unlockedProjects: new Set(), // project ids this browser has already entered the passcode for
@@ -711,6 +716,47 @@ async function dispatchAction(el, action) {
     return;
   }
 
+  if (action === "open-report") {
+    if (!STATE.admin) return;
+    STATE.reportFrom = { view: STATE.view, selectedProjectId: STATE.selectedProjectId };
+    STATE.reportProjectId = STATE.selectedProjectId;
+    STATE.reportHomeProjectId = STATE.selectedProjectId === "all" ? null : STATE.selectedProjectId;
+    STATE.reportYear = STATE.calendar.year;
+    STATE.reportMonth = STATE.calendar.month;
+    STATE.view = "report";
+    render();
+    return;
+  }
+  if (action === "back-from-report") {
+    const from = STATE.reportFrom;
+    STATE.reportFrom = null;
+    STATE.view = from ? from.view : "picker";
+    STATE.selectedProjectId = from ? from.selectedProjectId : null;
+    render();
+    return;
+  }
+  if (action === "report-scope-project" || action === "report-scope-all") {
+    if (!STATE.admin) return;
+    if (action === "report-scope-all") STATE.reportProjectId = "all";
+    else if (STATE.reportHomeProjectId) STATE.reportProjectId = STATE.reportHomeProjectId;
+    render();
+    return;
+  }
+  if (action === "report-prev-month" || action === "report-next-month") {
+    let m = STATE.reportMonth + (action === "report-prev-month" ? -1 : 1);
+    let y = STATE.reportYear;
+    if (m < 0) { m = 11; y -= 1; }
+    if (m > 11) { m = 0; y += 1; }
+    STATE.reportMonth = m;
+    STATE.reportYear = y;
+    render();
+    return;
+  }
+  if (action === "print-report") {
+    window.print();
+    return;
+  }
+
   if (action === "view-person") {
     const id = el.dataset.id;
     if (!byId(STATE.data.people, id)) return;
@@ -770,12 +816,14 @@ function render() {
     STATE.selectedPersonId = null;
     STATE.personProfileFrom = null;
   }
+  if (STATE.view === "report" && !STATE.admin) STATE.view = "picker";
 
   const root = document.getElementById("view-root");
   if (STATE.view === "picker") root.innerHTML = renderPicker();
   else if (STATE.view === "project") root.innerHTML = renderProjectView();
   else if (STATE.view === "manage") root.innerHTML = renderManage();
   else if (STATE.view === "person") root.innerHTML = renderPersonProfile();
+  else if (STATE.view === "report") root.innerHTML = renderReportView();
 
   renderTopbarActions();
   wireViewInputs();
@@ -787,6 +835,8 @@ function renderTopbarActions() {
   const parts = [];
   if (STATE.view === "person") {
     parts.push(`<button class="btn btn-small" data-action="back-from-person">&larr; Back</button>`);
+  } else if (STATE.view === "report") {
+    parts.push(`<button class="btn btn-small" data-action="back-from-report">&larr; Back</button>`);
   } else if (STATE.view !== "picker") {
     parts.push(`<button class="btn btn-small" data-action="back-to-picker">&larr; Choose project</button>`);
   }
@@ -938,7 +988,10 @@ function renderProjectView() {
         <h1>${isAll ? "All projects" : escapeHtml(project.name)}</h1>
         <p>${isAll ? "Combined view across every active project" : `${frequencyDetailLabel(project)} · ${escapeHtml(personName(project.defaultAssigneeId))}`}</p>
       </div>
-      ${scopeToggle}
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+        ${scopeToggle}
+        ${STATE.admin ? `<button type="button" class="btn btn-small" data-action="open-report">Monthly report</button>` : ""}
+      </div>
     </div>
 
     ${teamStrip}
@@ -1150,6 +1203,147 @@ function renderCalendarSection(scopedEntries, year, month, isAll) {
           )
           .join("")}
       </div>
+    </div>
+  `;
+}
+
+/** Minimal ring/donut chart built from plain SVG — no charting library
+ * needed for three segments, and vector SVG prints crisply on A4. */
+function donutChartSvg(segments, size = 132, strokeWidth = 20) {
+  const total = segments.reduce((sum, s) => sum + s.value, 0);
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const center = size / 2;
+  if (!total) {
+    return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}"><circle cx="${center}" cy="${center}" r="${radius}" fill="none" stroke="#d8dce6" stroke-width="${strokeWidth}"></circle></svg>`;
+  }
+  let offset = 0;
+  const circles = segments
+    .filter((s) => s.value > 0)
+    .map((s) => {
+      const dash = (s.value / total) * circumference;
+      const circle = `<circle cx="${center}" cy="${center}" r="${radius}" fill="none" stroke="${s.color}" stroke-width="${strokeWidth}" stroke-dasharray="${dash.toFixed(2)} ${(circumference - dash).toFixed(2)}" stroke-dashoffset="${(-offset).toFixed(2)}" transform="rotate(-90 ${center} ${center})"></circle>`;
+      offset += dash;
+      return circle;
+    })
+    .join("");
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${circles}</svg>`;
+}
+
+function renderReportView() {
+  const reportProjectId = STATE.reportProjectId;
+  const project = reportProjectId === "all" ? null : byId(STATE.data.projects, reportProjectId);
+  if (reportProjectId !== "all" && !project) {
+    STATE.view = "picker";
+    STATE.selectedProjectId = null;
+    return renderPicker();
+  }
+
+  const year = STATE.reportYear;
+  const month = STATE.reportMonth;
+  const scoped = filterByProject(STATE.data.schedule, reportProjectId);
+  const monthEntries = entriesInMonth(scoped, year, month);
+  const summary = summarize(monthEntries);
+  const health = healthLabel(summary.onTimeRate);
+
+  const people =
+    reportProjectId === "all"
+      ? STATE.data.people.filter((p) => p.active !== false)
+      : STATE.data.people.filter((p) => p.active !== false && parsePersonProjectIds(p.projectIds).includes(reportProjectId));
+
+  const personRows = people
+    .map((p) => ({ person: p, s: summarize(monthEntries.filter((e) => e.personId === p.id)) }))
+    .filter((row) => row.s.due > 0)
+    .sort((a, b) => (a.s.onTimeRate ?? 1) - (b.s.onTimeRate ?? 1));
+
+  const donut = donutChartSvg([
+    { label: "On time", value: summary["on-time"], color: "#1e7a46" },
+    { label: "Late", value: summary.late, color: "#92600a" },
+    { label: "Missing", value: summary.missing, color: "#b3261e" },
+  ]);
+
+  const toolbar = `
+    <div class="report-toolbar no-print">
+      <div class="report-month-nav">
+        <button type="button" class="btn btn-small" data-action="report-prev-month">&larr;</button>
+        <strong>${monthLabel(year, month)}</strong>
+        <button type="button" class="btn btn-small" data-action="report-next-month">&rarr;</button>
+      </div>
+      ${
+        STATE.reportHomeProjectId
+          ? `<div class="scope-toggle">
+              <button type="button" class="scope-toggle-btn ${reportProjectId !== "all" ? "active" : ""}" data-action="report-scope-project">This project</button>
+              <button type="button" class="scope-toggle-btn ${reportProjectId === "all" ? "active" : ""}" data-action="report-scope-all">Overall (all projects)</button>
+            </div>`
+          : ""
+      }
+      <button type="button" class="btn btn-primary btn-small" data-action="print-report">Print / Save as PDF</button>
+    </div>`;
+
+  const rowsHtml = personRows.length
+    ? personRows
+        .map(({ person, s }) => {
+          const onTimePct = Math.round((s.onTimeRate ?? 0) * 100);
+          const barColor = onTimePct >= 90 ? "#1e7a46" : onTimePct >= 50 ? "#92600a" : "#b3261e";
+          return `
+          <tr>
+            <td>${escapeHtml(person.name)}</td>
+            <td class="num">${s.due}</td>
+            <td>
+              <div class="report-bar-row">
+                <div class="report-bar-track"><div class="report-bar-fill" style="width:${onTimePct}%; background:${barColor};"></div></div>
+                <span>${formatPercent(s.onTimeRate)}</span>
+              </div>
+            </td>
+            <td class="num">${formatPercent(s.lateRate)}</td>
+            <td class="num">${formatPercent(s.missingRate)}</td>
+          </tr>`;
+        })
+        .join("")
+    : `<tr><td colspan="5"><div class="empty-state">No captures due this month</div></td></tr>`;
+
+  return `
+    ${toolbar}
+    <div class="report-page">
+      <div class="report-header">
+        <div>
+          <h1>Monthly capture report</h1>
+          <p>${reportProjectId === "all" ? "All projects (overall)" : escapeHtml(project.name)} · ${monthLabel(year, month)}</p>
+        </div>
+        <div class="${health.cls}"><span class="health-badge">${health.text}</span></div>
+      </div>
+
+      <div class="report-summary">
+        <div class="report-donut-wrap">
+          ${donut}
+          <div class="report-donut-center">
+            <div class="report-donut-value">${formatPercent(summary.onTimeRate)}</div>
+            <div class="report-donut-label">capture health</div>
+          </div>
+        </div>
+        <div class="report-legend">
+          <div class="report-legend-item"><span class="report-legend-swatch" style="background:#1e7a46;"></span>On time — ${summary["on-time"]} (${formatPercent(summary.onTimeRate)})</div>
+          <div class="report-legend-item"><span class="report-legend-swatch" style="background:#92600a;"></span>Late — ${summary.late} (${formatPercent(summary.lateRate)})</div>
+          <div class="report-legend-item"><span class="report-legend-swatch" style="background:#b3261e;"></span>Missing — ${summary.missing} (${formatPercent(summary.missingRate)})</div>
+          <div class="report-legend-item report-legend-total">${summary.due} due this month${summary.upcoming ? ` · ${summary.upcoming} still upcoming` : ""}</div>
+        </div>
+      </div>
+
+      <div class="section-title">By person</div>
+      <table class="report-table">
+        <thead>
+          <tr>
+            <th>Person</th>
+            <th class="num">Due</th>
+            <th>On time</th>
+            <th class="num">Late</th>
+            <th class="num">Missing</th>
+          </tr>
+        </thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+
+      <div class="report-footer">Generated ${formatDateHuman(todayStr())} · Cupix Capture Tracker</div>
     </div>
   `;
 }
