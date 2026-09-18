@@ -127,6 +127,14 @@ function personStatsOptionsHtml(selectedId, projectId) {
     if (!isScoped) return true;
     return parsePersonProjectIds(p.projectIds).includes(projectId);
   });
+  // Always keep the currently-selected person visible even if they've
+  // since been removed from this project's team or deactivated —
+  // otherwise the select silently shows "Who captured this?" instead
+  // of the person actually on record for this entry.
+  if (selectedId && !pool.some((p) => p.id === selectedId)) {
+    const selectedPerson = byId(STATE.data.people, selectedId);
+    if (selectedPerson) pool.push(selectedPerson);
+  }
   return pool
     .map((p) => {
       const relevantEntries = isScoped
@@ -1334,7 +1342,17 @@ function renderManage() {
 
 function openProjectModal(project) {
   const isEdit = !!project;
-  const people = STATE.data.people;
+  // Scope the default-owner picker to this project's own team, so it
+  // can't be set to someone from a different project — that would
+  // silently defeat the per-project staff isolation. A brand-new
+  // project has no team yet, so it falls back to everyone; editing an
+  // existing project always keeps the current owner visible even if
+  // they've since been taken off the team.
+  const people = isEdit
+    ? STATE.data.people.filter(
+        (p) => parsePersonProjectIds(p.projectIds).includes(project.id) || p.id === project.defaultAssigneeId
+      )
+    : STATE.data.people;
   const selectedDays = new Set(parseCaptureDays(project?.captureDays));
   const html = `
     <div class="modal-title">${isEdit ? "Edit project" : "Add project"}</div>
