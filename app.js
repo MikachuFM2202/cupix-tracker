@@ -1209,7 +1209,7 @@ function renderCalendarSection(scopedEntries, year, month, isAll) {
 
 /** Minimal ring/donut chart built from plain SVG — no charting library
  * needed for three segments, and vector SVG prints crisply on A4. */
-function donutChartSvg(segments, size = 132, strokeWidth = 20) {
+function donutChartSvg(segments, size = 148, strokeWidth = 16) {
   const total = segments.reduce((sum, s) => sum + s.value, 0);
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
@@ -1252,9 +1252,16 @@ function renderReportView() {
       : STATE.data.people.filter((p) => p.active !== false && parsePersonProjectIds(p.projectIds).includes(reportProjectId));
 
   const personRows = people
-    .map((p) => ({ person: p, s: summarize(monthEntries.filter((e) => e.personId === p.id)) }))
+    .map((p) => ({
+      person: p,
+      s: summarize(monthEntries.filter((e) => e.personId === p.id)),
+      projectNames: parsePersonProjectIds(p.projectIds)
+        .map((id) => byId(STATE.data.projects, id)?.name)
+        .filter(Boolean),
+    }))
     .filter((row) => row.s.due > 0)
     .sort((a, b) => (a.s.onTimeRate ?? 1) - (b.s.onTimeRate ?? 1));
+  const showProjectColumn = reportProjectId === "all";
 
   const donut = donutChartSvg([
     { label: "On time", value: summary["on-time"], color: "#1e7a46" },
@@ -1280,14 +1287,16 @@ function renderReportView() {
       <button type="button" class="btn btn-primary btn-small" data-action="print-report">Print / Save as PDF</button>
     </div>`;
 
+  const columnCount = showProjectColumn ? 6 : 5;
   const rowsHtml = personRows.length
     ? personRows
-        .map(({ person, s }) => {
+        .map(({ person, s, projectNames }) => {
           const onTimePct = Math.round((s.onTimeRate ?? 0) * 100);
           const barColor = onTimePct >= 90 ? "#1e7a46" : onTimePct >= 50 ? "#92600a" : "#b3261e";
           return `
           <tr>
             <td>${escapeHtml(person.name)}</td>
+            ${showProjectColumn ? `<td>${projectNames.length ? escapeHtml(projectNames.join(", ")) : "—"}</td>` : ""}
             <td class="num">${s.due}</td>
             <td>
               <div class="report-bar-row">
@@ -1300,17 +1309,17 @@ function renderReportView() {
           </tr>`;
         })
         .join("")
-    : `<tr><td colspan="5"><div class="empty-state">No captures due this month</div></td></tr>`;
+    : `<tr><td colspan="${columnCount}"><div class="empty-state">No captures due this month</div></td></tr>`;
 
   return `
     ${toolbar}
     <div class="report-page">
       <div class="report-header">
-        <div>
+        <div class="report-header-title">
           <h1>Monthly capture report</h1>
           <p>${reportProjectId === "all" ? "All projects (overall)" : escapeHtml(project.name)} · ${monthLabel(year, month)}</p>
         </div>
-        <div class="${health.cls}"><span class="health-badge">${health.text}</span></div>
+        <div class="report-health-tag ${health.cls}"><span class="health-badge">${health.text}</span></div>
       </div>
 
       <div class="report-summary">
@@ -1318,7 +1327,7 @@ function renderReportView() {
           ${donut}
           <div class="report-donut-center">
             <div class="report-donut-value">${formatPercent(summary.onTimeRate)}</div>
-            <div class="report-donut-label">capture health</div>
+            <div class="report-donut-label">Capture<br>health</div>
           </div>
         </div>
         <div class="report-legend">
@@ -1334,6 +1343,7 @@ function renderReportView() {
         <thead>
           <tr>
             <th>Person</th>
+            ${showProjectColumn ? "<th>Project</th>" : ""}
             <th class="num">Due</th>
             <th>On time</th>
             <th class="num">Late</th>

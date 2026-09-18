@@ -1023,9 +1023,25 @@ tbody tr:hover {
   margin-bottom: 20px;
 }
 
+/* min-width:0 lets this side wrap/shrink instead of overflowing the
+   page when a project name is long; the health tag keeps its own
+   full size either way. */
+.report-header-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.report-header-title h1 {
+  overflow-wrap: break-word;
+}
+
 .report-header p {
   color: var(--text-muted);
   font-size: 13.5px;
+}
+
+.report-health-tag {
+  flex-shrink: 0;
 }
 
 .report-summary {
@@ -1038,11 +1054,14 @@ tbody tr:hover {
 
 .report-donut-wrap {
   position: relative;
-  width: 132px;
-  height: 132px;
+  width: 148px;
+  height: 148px;
   flex-shrink: 0;
 }
 
+/* The label sits inside the ring's own hole, not just the wrap box —
+   keep it narrower than the hole (donut size minus 2x stroke width)
+   so the text never overlaps the colored ring. */
 .report-donut-center {
   position: absolute;
   inset: 0;
@@ -1051,18 +1070,23 @@ tbody tr:hover {
   align-items: center;
   justify-content: center;
   text-align: center;
+  width: 96px;
+  margin: 0 auto;
 }
 
 .report-donut-value {
   font-size: 22px;
   font-weight: 700;
+  line-height: 1.15;
 }
 
 .report-donut-label {
-  font-size: 10.5px;
+  font-size: 9px;
+  line-height: 1.2;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.02em;
   color: var(--text-muted);
+  margin-top: 2px;
 }
 
 .report-legend {
