@@ -1397,6 +1397,8 @@ function renderPersonProfile() {
 }
 
 function openEntryDateEditModal(entry) {
+  const project = byId(STATE.data.projects, entry.projectId);
+  const isAutoScheduled = project && project.frequency !== "manual";
   const html = `
     <div class="modal-title">Edit capture dates</div>
     <div class="modal-sub">${escapeHtml(projectName(entry.projectId))} — ${escapeHtml(personName(entry.personId))}</div>
@@ -1414,6 +1416,11 @@ function openEntryDateEditModal(entry) {
         <input type="date" id="ed-captured" value="${entry.capturedDate || ""}">
       </div>
       <span class="hint">Captured on or before the planned date counts as on time; after it counts as late.</span>
+      ${
+        isAutoScheduled
+          ? `<span class="hint">This project auto-fills its recurring pattern — if you move the planned date off ${formatDateHuman(entry.plannedDate)}, that original date can reappear next time the schedule is refreshed. Just delete the duplicate if it shows up.</span>`
+          : ""
+      }
       <div class="form-actions">
         <button type="button" class="btn" data-action="close-modal">Cancel</button>
         <button type="submit" class="btn btn-primary">Save</button>
@@ -1606,10 +1613,20 @@ function openProjectModal(project) {
         await Store.updateProject(project.id, fields);
         full = { ...project, ...fields };
         await pruneStaleSchedule(project, full);
+        // Only re-run auto-fill when the recurring pattern itself changed —
+        // not on every unrelated save (toggling active, renaming, etc). A
+        // blanket regenerate here would also silently recreate a duplicate
+        // for any entry whose planned date an admin has manually corrected
+        // away from its usual slot via the person-profile date editor.
+        const patternChanged =
+          project.frequency !== full.frequency ||
+          project.anchorDate !== full.anchorDate ||
+          (project.captureDays || "") !== (full.captureDays || "");
+        if (patternChanged) await regenerateSchedule(full);
       } else {
         full = await Store.addProject(fields);
+        await regenerateSchedule(full);
       }
-      await regenerateSchedule(full);
       closeModal();
       await afterMutate();
       showToast(isEdit ? "Project updated" : "Project added");
