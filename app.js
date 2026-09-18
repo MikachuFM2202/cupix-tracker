@@ -168,6 +168,25 @@ function entriesInMonth(entries, year, month) {
   return entries.filter((e) => e.plannedDate.startsWith(prefix));
 }
 
+function entriesInYear(entries, year) {
+  const prefix = `${year}-`;
+  return entries.filter((e) => e.plannedDate.startsWith(prefix));
+}
+
+/**
+ * Turns an on-time rate into a plain-language capture health label,
+ * used for both the monthly and yearly health readouts. Same
+ * thresholds either way — "health" means the same thing regardless
+ * of the time window.
+ */
+function healthLabel(rate) {
+  if (rate === null || rate === undefined) return { text: "No data yet", cls: "health-none" };
+  if (rate >= 0.9) return { text: "Excellent", cls: "health-excellent" };
+  if (rate >= 0.75) return { text: "Good", cls: "health-good" };
+  if (rate >= 0.5) return { text: "Needs attention", cls: "health-warning" };
+  return { text: "Critical", cls: "health-critical" };
+}
+
 function filterByProject(entries, projectId) {
   return projectId === "all" ? entries : entries.filter((e) => e.projectId === projectId);
 }
@@ -779,6 +798,10 @@ function renderProjectView() {
   const scoped = filterByProject(STATE.data.schedule, scopeId);
   const monthEntries = entriesInMonth(scoped, year, month);
   const summary = summarize(monthEntries);
+  const yearEntries = entriesInYear(scoped, year);
+  const yearSummary = summarize(yearEntries);
+  const monthHealth = healthLabel(summary.onTimeRate);
+  const yearHealth = healthLabel(yearSummary.onTimeRate);
   const today = todayStr();
 
   const allMissing = sortedByPlannedDate(scoped.filter((e) => captureStatus(e) === "missing"));
@@ -822,6 +845,21 @@ function renderProjectView() {
     </div>
 
     <div class="card-grid">
+      <div class="card health-card ${monthHealth.cls}">
+        <div class="health-card-label">Capture health — ${monthLabel(year, month)}</div>
+        <div class="health-card-value">${formatPercent(summary.onTimeRate)}</div>
+        <span class="health-badge">${monthHealth.text}</span>
+        <div class="health-card-sub">${summary.due} due this month${summary.due ? ` · ${summary["on-time"]} on time, ${summary.missing} missing` : ""}</div>
+      </div>
+      <div class="card health-card ${yearHealth.cls}">
+        <div class="health-card-label">Capture health — ${year}</div>
+        <div class="health-card-value">${formatPercent(yearSummary.onTimeRate)}</div>
+        <span class="health-badge">${yearHealth.text}</span>
+        <div class="health-card-sub">${yearSummary.due} due in ${year}${yearSummary.due ? ` · ${yearSummary["on-time"]} on time, ${yearSummary.missing} missing` : ""}</div>
+      </div>
+    </div>
+
+    <div class="card-grid">
       <div class="card stat-card">
         <div class="stat-label">Planned this month</div>
         <div class="stat-value">${monthEntries.length}</div>
@@ -836,11 +874,6 @@ function renderProjectView() {
         <div class="stat-label">Missing</div>
         <div class="stat-value">${summary.missing}</div>
         <div class="stat-sub">out of ${summary.due} due so far</div>
-      </div>
-      <div class="card stat-card">
-        <div class="stat-label">On-time rate (this month)</div>
-        <div class="stat-value">${formatPercent(summary.onTimeRate)}</div>
-        <div class="stat-sub">missing rate ${formatPercent(summary.missingRate)}</div>
       </div>
     </div>
 
