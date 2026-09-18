@@ -181,9 +181,14 @@ function entriesInYear(entries, year) {
  */
 function healthLabel(rate) {
   if (rate === null || rate === undefined) return { text: "No data yet", cls: "health-none" };
-  if (rate >= 0.9) return { text: "Excellent", cls: "health-excellent" };
-  if (rate >= 0.75) return { text: "Good", cls: "health-good" };
-  if (rate >= 0.5) return { text: "Needs attention", cls: "health-warning" };
+  // Threshold against the same rounded percentage shown on screen, not
+  // the raw fraction — otherwise a rate like 89.74% displays as "90%"
+  // (rounds up) while still getting labeled "Good" instead of
+  // "Excellent", which reads as a contradiction right next to the number.
+  const pct = Math.round(rate * 100);
+  if (pct >= 90) return { text: "Excellent", cls: "health-excellent" };
+  if (pct >= 75) return { text: "Good", cls: "health-good" };
+  if (pct >= 50) return { text: "Needs attention", cls: "health-warning" };
   return { text: "Critical", cls: "health-critical" };
 }
 
